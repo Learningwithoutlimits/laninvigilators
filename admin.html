@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Invigilation Admin</title>
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="stylesheet" href="assets/style.css">
+  <style>
+    main { max-width: 1400px; }
+    .site-header .inner { max-width: 1400px; }
+
+    .savebar {
+      position: sticky; top: 0; z-index: 20;
+      background: var(--white);
+      border-bottom: 1px solid var(--grey-line);
+      box-shadow: var(--shadow);
+    }
+    .savebar .inner { max-width: 1400px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .savebar .status { font-weight: bold; }
+    .savebar .status.dirty { color: var(--red); }
+    .savebar .status.clean { color: var(--teal-dark); }
+
+    .tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 2px solid var(--teal); margin-bottom: 20px; }
+    .tabs button { background: var(--white); color: var(--teal-dark); border: 2px solid var(--teal-tint-2); border-bottom: none; border-radius: 6px 6px 0 0; }
+    .tabs button[aria-selected="true"] { background: var(--teal); border-color: var(--teal); color: var(--white); }
+
+    .help { color: var(--grey); margin-bottom: 16px; max-width: 800px; }
+
+    .grid-wrap { overflow: auto; max-height: 70vh; border: 1px solid var(--grey-line); border-radius: 6px; }
+    table.grid { width: auto; border-collapse: separate; border-spacing: 0; }
+    table.grid th, table.grid td { padding: 0; border-bottom: 1px solid var(--grey-line); border-right: 1px solid var(--grey-line); }
+    table.grid thead th { position: sticky; top: 0; z-index: 2; padding: 8px 6px; white-space: nowrap; font-size: 0.9rem; }
+    table.grid th.rowhead { position: sticky; left: 0; z-index: 1; background: var(--teal-tint); color: var(--ink); padding: 6px 10px; white-space: nowrap; font-size: 0.9rem; text-align: left; }
+    table.grid thead th.rowhead { z-index: 3; background: var(--teal-dark); color: var(--white); }
+    table.grid tr.week-start th, table.grid tr.week-start td { border-top: 3px solid var(--teal); }
+    table.grid input { border: none; border-radius: 0; width: 96px; padding: 8px 6px; font-size: 0.9rem; background: transparent; }
+    table.grid input:focus { outline: 3px solid var(--teal); outline-offset: -3px; background: var(--white); }
+    table.grid td.filled { background: var(--teal-tint); }
+    table.grid td.na { background: var(--grey); }
+    table.grid td.na input { color: var(--white); font-weight: bold; }
+    table.grid td.clash { background: var(--red); }
+    table.grid td.clash input { color: var(--white); font-weight: bold; }
+    .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 10px 0 16px; font-size: 0.9rem; }
+    .legend span::before { content: ""; display: inline-block; width: 14px; height: 14px; border-radius: 3px; margin-right: 6px; vertical-align: -2px; border: 1px solid var(--grey-line); }
+    .legend .l-duty::before { background: var(--teal-tint); }
+    .legend .l-na::before { background: var(--grey); }
+    .legend .l-clash::before { background: var(--red); }
+    .legend .l-free::before { background: var(--white); }
+
+    table.list td, table.list th { padding: 8px 10px; }
+    table.list input[type="text"] { width: 100%; min-width: 180px; padding: 8px; }
+    table.list input[type="time"] { padding: 8px; }
+
+    .dropzone {
+      border: 3px dashed var(--teal); border-radius: var(--radius);
+      padding: 36px 20px; text-align: center; background: var(--teal-tint); cursor: pointer;
+    }
+    .dropzone.over { background: var(--teal-tint-2); }
+    .dropzone strong { font-size: 1.15rem; color: var(--teal-dark); }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+    .field { margin-bottom: 16px; }
+    .field input[type="text"], .field textarea { width: 100%; }
+    ul.plain { list-style: none; padding: 0; margin: 0; }
+    ul.plain li { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--grey-line); flex-wrap: wrap; }
+    ul.plain li .grow { flex: 1; min-width: 140px; }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="inner">
+      <img class="logo" src="assets/lwlat-logo-white.png" alt="Learning without Limits Academy Trust">
+      <div class="titles">
+        <h1>Invigilation timetable: admin</h1>
+        <p>For the exams office. Invigilators use the <a href="./" style="color:#fff">main page</a>.</p>
+      </div>
+    </div>
+  </header>
+
+  <div id="savebar" class="savebar hidden">
+    <div class="inner">
+      <span id="save-status" class="status clean">All changes saved</span>
+      <span id="save-detail" class="muted small"></span>
+      <span class="spacer"></span>
+      <button id="download-excel" class="secondary" type="button">Download as Excel</button>
+      <button id="save" type="button" disabled>Save and publish</button>
+    </div>
+  </div>
+
+  <main>
+    <div id="message" aria-live="polite"></div>
+
+    <section id="login" class="card" style="max-width:520px">
+      <h2>Sign in</h2>
+      <p>Enter the admin password to manage the timetable.</p>
+      <form id="login-form" class="row">
+        <input id="password" type="password" autocomplete="current-password" aria-label="Admin password" required>
+        <button type="submit">Sign in</button>
+      </form>
+    </section>
+
+    <div id="app" class="hidden">
+      <nav class="tabs" role="tablist">
+        <button role="tab" data-tab="grid" type="button">Timetable</button>
+        <button role="tab" data-tab="exams" type="button">Exam details</button>
+        <button role="tab" data-tab="upload" type="button">Upload spreadsheet</button>
+        <button role="tab" data-tab="settings" type="button">Names, dates and settings</button>
+        <button role="tab" data-tab="versions" type="button">Previous versions</button>
+      </nav>
+
+      <!-- Timetable grid -->
+      <section id="tab-grid" class="tab hidden">
+        <p class="help">Click a box and type to change it. Type a room or duty (for example Hall, Gym or Roving). Type <strong>N/A</strong> if the person is not available. Leave it empty for no duty. Press <strong>Save and publish</strong> when you have finished.</p>
+        <div class="row" style="margin-bottom:8px">
+          <label for="grid-week" style="margin:0">Show</label>
+          <select id="grid-week"></select>
+        </div>
+        <div class="legend">
+          <span class="l-duty">Duty</span><span class="l-free">No duty</span><span class="l-na">Not available (N/A)</span><span class="l-clash">CLASH</span>
+        </div>
+        <div class="grid-wrap"><table class="grid" id="grid"></table></div>
+        <datalist id="places"></datalist>
+      </section>
+
+      <!-- Exam details -->
+      <section id="tab-exams" class="tab hidden">
+        <p class="help">Add the exam name and times for each room. Invigilators see these next to their duty. If you leave the times empty, the usual session times below are shown instead.</p>
+        <div class="card">
+          <h3>Usual session times</h3>
+          <div id="period-times" class="row"></div>
+        </div>
+        <div class="row" style="margin-bottom:12px">
+          <label for="exam-week" style="margin:0">Show</label>
+          <select id="exam-week"></select>
+        </div>
+        <div style="overflow:auto">
+          <table class="list">
+            <thead><tr><th>Date</th><th>Session</th><th>Room or duty</th><th>Invigilators</th><th>Exam</th><th>Start</th><th>Finish</th></tr></thead>
+            <tbody id="exam-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Upload -->
+      <section id="tab-upload" class="tab hidden">
+        <p class="help">Upload the invigilation spreadsheet (.xlsx) to replace the whole timetable. Exam details you have already typed in are kept. If you have a .xlsb file, open it in Excel and use <em>File, Save As, Excel Workbook (.xlsx)</em> first.</p>
+        <label class="dropzone" id="dropzone" for="file-input">
+          <strong>Drop the spreadsheet here, or click to choose it</strong><br>
+          <span class="muted">Excel workbook (.xlsx)</span>
+        </label>
+        <input id="file-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden">
+        <div id="upload-result"></div>
+      </section>
+
+      <!-- Settings -->
+      <section id="tab-settings" class="tab hidden">
+        <div class="two-col">
+          <div class="card">
+            <h3>Page heading and notice</h3>
+            <div class="field">
+              <label for="title">Heading shown to invigilators</label>
+              <input id="title" type="text" placeholder="For example, Year 11 mock exams, November 2026">
+            </div>
+            <div class="field">
+              <label for="notice">Notice for all invigilators (optional)</label>
+              <textarea id="notice" rows="4" placeholder="For example, please arrive 20 minutes before each exam."></textarea>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Invigilators</h3>
+            <ul class="plain" id="people"></ul>
+            <form id="add-person" class="row" style="margin-top:12px">
+              <input id="new-person" type="text" placeholder="New name" aria-label="New invigilator name">
+              <button type="submit" class="secondary">Add invigilator</button>
+            </form>
+          </div>
+          <div class="card">
+            <h3>Dates and sessions</h3>
+            <form id="add-session" class="row" style="margin-bottom:12px">
+              <input id="new-date" type="date" aria-label="Date" required>
+              <select id="new-period" aria-label="Session"><option>AM</option><option>PM</option></select>
+              <button type="submit" class="secondary">Add session</button>
+            </form>
+            <ul class="plain" id="session-list" style="max-height:420px; overflow:auto"></ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- Versions -->
+      <section id="tab-versions" class="tab hidden">
+        <p class="help">Each time you save, the previous version is kept. The last 30 are listed here. Restoring a version publishes it straight away, and the version it replaces is kept too.</p>
+        <div id="versions"></div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="inner">Learning without Limits Academy Trust. Admin page for the exams office.</div>
+  </footer>
+
+  <script src="assets/common.js"></script>
+  <script src="assets/vendor/exceljs.min.js"></script>
+  <script src="assets/excel.js"></script>
+  <script>
+  (() => {
+    const { api, remember, recall, el } = LWLAT;
+    const $ = (id) => document.getElementById(id);
+    const PASSWORD_KEY = "lwlat-invig-admin";
+
+    let password = recall(sessionStorage, PASSWORD_KEY) || "";
+    let data = null;          // the working copy being edited
+    let savedAt = null;       // updatedAt of the version this copy was based on
+    let dirty = false;
+    let activeTab = "grid";
+
+    // ---- Messages and status ----
+
+    function showMessage(text, kind = "error") {
+      $("message").replaceChildren(text ? el("div", { class: kind, text }) : "");
+      if (text) window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function setDirty(value) {
+      dirty = value;
+      $("save").disabled = !dirty;
+      $("save-status").textContent = dirty ? "You have unsaved changes" : "All changes saved";
+      $("save-status").className = "status " + (dirty ? "dirty" : "clean");
+      $("save-detail").textContent = !dirty && savedAt ? `Published ${LWLAT.formatStamp(savedAt)}` : dirty ? "Invigilators will not see these until you save." : "";
+    }
+    const changed = () => setDirty(true);
+
+    window.addEventListener("beforeunload", (e) => {
+      if (dirty) { e.preventDefault(); e.returnValue = ""; }
+    });
+
+    // ---- Sign in and load ----
+
+    async function load() {
+      try {
+        const result = await api("/api/timetable", { password });
+        if (result.role !== "admin") {
+          showMessage("That is the invigilator password. Please enter the admin password.");
+          signOut();
+          return;
+        }
+        remember(sessionStorage, PASSWORD_KEY, password);
+        data = Object.assign(LWLAT.emptyData(), result.data || {});
+        savedAt = result.data?.updatedAt ?? null;
+        $("login").classList.add("hidden");
+        $("app").classList.remove("hidden");
+        $("savebar").classList.remove("hidden");
+        setDirty(false);
+        showMessage("");
+        openTab(data.sessions.length ? "grid" : "upload");
+      } catch (err) {
+        if (err.status === 401) {
+          showMessage(password ? "That password was not recognised." : "");
+          signOut();
+        } else {
+          showMessage(err.message);
+        }
+      }
+    }
+
+    function signOut() {
+      password = "";
+      remember(sessionStorage, PASSWORD_KEY, null);
+      $("login").classList.remove("hidden");
+      $("app").classList.add("hidden");
+      $("savebar").classList.add("hidden");
+      $("password").focus();
+    }
+
+    $("login-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      password = $("password").value;
+      load();
+    });
+
+    // ---- Saving ----
+
+    async function save(force = false) {
+      $("save").disabled = true;
+      $("save-status").textContent = "Saving…";
+      try {
+        tidy();
+        const result = await api("/api/timetable", { method: "PUT", password, body: { data, baseUpdatedAt: savedAt, force } });
+        data = Object.assign(LWLAT.emptyData(), result.data);
+        savedAt = result.data.updatedAt;
+        setDirty(false);
+        showMessage("Saved. Invigilators can now see the updated timetable.", "success");
+        renderTab();
+      } catch (err) {
+        setDirty(true);
+        if (err.status === 409) {
+          if (confirm(err.message + "\n\nPress OK to save your version anyway, or Cancel to keep editing.")) return save(true);
+        } else if (err.status === 401 || err.status === 403) {
+          showMessage("Your password is no longer valid. Please sign in again. Your changes have not been saved.");
+        } else {
+          showMessage("Saving failed: " + err.message);
+        }
+      }
+    }
+    $("save").addEventListener("click", () => save());
+
+    // Remove empty cells and exam details for rooms no longer used, so the data stays small.
+    function tidy() {
+      const valid = new Set(data.sessions.map((s) => LWLAT.sessionId(s.date, s.period)));
+      for (const sid of Object.keys(data.duties)) {
+        if (!valid.has(sid)) { delete data.duties[sid]; continue; }
+        for (const [name, v] of Object.entries(data.duties[sid])) {
+          if (!String(v).trim() || !data.invigilators.includes(name)) delete data.duties[sid][name];
+        }
+      }
+      for (const [key, v] of Object.entries(data.exams)) {
+        if (!v.exam && !v.start && !v.end) delete data.exams[key];
+      }
+    }
+
+    $("download-excel").addEventListener("click", async () => {
+      tidy();
+      const blob = await LWLAT_EXCEL.write(data);
+      const a = el("a", { href: URL.createObjectURL(blob), download: `${(data.title || "Invigilation timetable").replace(/[\\/:*?"<>|]+/g, "")}.xlsx` });
+      document.body.append(a);
+      a.click();
+      a.remove();
+    });
+
+    // ---- Tabs ----
+
+    function openTab(name) {
+      activeTab = name;
+      document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
+      document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("hidden", t.id !== "tab-" + name));
+      renderTab();
+    }
+    document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => openTab(b.dataset.tab)));
+
+    function renderTab() {
+      if (activeTab === "grid") renderGrid();
+      if (activeTab === "exams") renderExams();
+      if (activeTab === "settings") renderSettings();
+      if (activeTab === "versions") renderVersions();
+    }
+
+    function sortedSessions() {
+      return LWLAT.sortSessions(data.sessions, LWLAT.periodOrderOf(data));
+    }
+
+    function fillWeekSelect(select) {
+      const keep = select.value;
+      const weeks = [...new Set(sortedSessions().map((s) => LWLAT.mondayOf(s.date)))];
+      select.replaceChildren(el("option", { value: "", text: "All weeks" }),
+        ...weeks.map((w) => el("option", { value: w, text: LWLAT.formatWeek(w) })));
+      if ([...select.options].some((o) => o.value === keep)) select.value = keep;
+    }
+
+    // ---- Timetable grid ----
+
+    function cellClass(v) {
+      if (!v) return "";
+      if (LWLAT.isUnavailable(v)) return "na";
+      if (LWLAT.isClash(v)) return "clash";
+      return "filled";
+    }
+
+    function renderGrid() {
+      fillWeekSelect($("grid-week"));
+      const week = $("grid-week").value;
+      const sessions = sortedSessions().filter((s) => !week || LWLAT.mondayOf(s.date) === week);
+
+      const places = new Set();
+      for (const sid of Object.keys(data.duties)) for (const v of Object.values(data.duties[sid])) {
+        if (v && !LWLAT.isUnavailable(v) && !LWLAT.isClash(v)) places.add(v.trim());
+      }
+      $("places").replaceChildren(el("option", { value: "N/A" }), ...[...places].sort().map((p) => el("option", { value: p })));
+
+      if (!data.invigilators.length || !sessions.length) {
+        $("grid").replaceChildren(el("tbody", {}, el("tr", {}, el("td", { style: "padding:16px", text: "There is no timetable yet. Use the Upload spreadsheet tab to add one." }))));
+        return;
+      }
+
+      const head = el("thead", {}, el("tr", {},
+        el("th", { class: "rowhead", text: "Session" }),
+        ...data.invigilators.map((n) => el("th", { scope: "col", text: n }))));
+
+      let lastMonday = null;
+      const body = el("tbody", {}, sessions.map((s) => {
+        const sid = LWLAT.sessionId(s.date, s.period);
+        const monday = LWLAT.mondayOf(s.date);
+        const weekStart = lastMonday !== null && monday !== lastMonday;
+        lastMonday = monday;
+        return el("tr", { class: weekStart ? "week-start" : "" },
+          el("th", { class: "rowhead", scope: "row", text: `${LWLAT.formatShort(s.date)} ${s.period}` }),
+          ...data.invigilators.map((name) => {
+            const value = data.duties[sid]?.[name] ?? "";
+            const td = el("td", { class: cellClass(value) });
+            const input = el("input", {
+              type: "text", value, list: "places",
+              "aria-label": `${name}, ${LWLAT.formatLong(s.date)} ${s.period}`,
+              oninput: (e) => {
+                data.duties[sid] ??= {};
+                data.duties[sid][name] = e.target.value;
+                td.className = cellClass(e.target.value.trim());
+                changed();
+              },
+            });
+            td.append(input);
+            return td;
+          }));
+      }));
+      $("grid").replaceChildren(head, body);
+    }
+    $("grid-week").addEventListener("change", renderGrid);
+
+    // ---- Exam details ----
+
+    function renderExams() {
+      const periods = LWLAT.periodOrderOf(data);
+      $("period-times").replaceChildren(...(periods.length ? periods : ["AM", "PM"]).map((p) => {
+        const t = data.periodTimes[p] ?? {};
+        const set = (field) => (e) => {
+          data.periodTimes[p] = { ...(data.periodTimes[p] ?? {}), [field]: e.target.value };
+          changed();
+        };
+        return el("div", { class: "row", style: "margin-right:24px" },
+          el("strong", { text: p }),
+          el("input", { type: "time", value: t.start ?? "", "aria-label": `${p} start`, onchange: set("start") }),
+          "to",
+          el("input", { type: "time", value: t.end ?? "", "aria-label": `${p} finish`, onchange: set("end") }));
+      }));
+
+      fillWeekSelect($("exam-week"));
+      const week = $("exam-week").value;
+      const rows = LWLAT_EXCEL.examRows(data).filter((r) => !week || LWLAT.mondayOf(r.session.date) === week);
+      if (!rows.length) {
+        $("exam-body").replaceChildren(el("tr", {}, el("td", { colspan: 7, class: "muted", text: "No rooms are in use yet. Fill in the timetable first." })));
+        return;
+      }
+      let lastSid = null;
+      $("exam-body").replaceChildren(...rows.map((r) => {
+        const sid = LWLAT.sessionId(r.session.date, r.session.period);
+        const first = sid !== lastSid;
+        lastSid = sid;
+        const update = (field) => (e) => {
+          data.exams[r.key] = { ...(data.exams[r.key] ?? {}), [field]: e.target.value };
+          changed();
+        };
+        return el("tr", { style: first ? "border-top:2px solid var(--teal)" : "" },
+          el("td", { text: first ? LWLAT.formatShort(r.session.date) : "" }),
+          el("td", { text: first ? r.session.period : "" }),
+          el("td", {}, el("strong", { text: r.location })),
+          el("td", { class: "small muted", text: r.names.join(", ") }),
+          el("td", {}, el("input", { type: "text", value: r.details.exam ?? "", placeholder: "Exam name", "aria-label": `Exam in ${r.location}`, oninput: update("exam") })),
+          el("td", {}, el("input", { type: "time", value: r.details.start ?? "", "aria-label": "Start", onchange: update("start") })),
+          el("td", {}, el("input", { type: "time", value: r.details.end ?? "", "aria-label": "Finish", onchange: update("end") })));
+      }));
+    }
+    $("exam-week").addEventListener("change", renderExams);
+
+    // ---- Upload ----
+
+    const dropzone = $("dropzone");
+    ["dragenter", "dragover"].forEach((ev) => dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.add("over"); }));
+    ["dragleave", "drop"].forEach((ev) => dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.remove("over"); }));
+    dropzone.addEventListener("drop", (e) => { if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+    $("file-input").addEventListener("change", (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ""; });
+
+    async function handleFile(file) {
+      const out = $("upload-result");
+      if (/\.xlsb$/i.test(file.name) || /\.xls$/i.test(file.name)) {
+        out.replaceChildren(el("div", { class: "error", text: "This is an older Excel format. Open it in Excel, choose File, Save As, Excel Workbook (.xlsx), then upload the new file." }));
+        return;
+      }
+      out.replaceChildren(el("p", { class: "muted", text: "Reading the spreadsheet…" }));
+      let parsed;
+      try {
+        parsed = await LWLAT_EXCEL.read(file);
+      } catch (err) {
+        out.replaceChildren(el("div", { class: "error", text: err.message || "The file could not be read. Please check it is an Excel .xlsx file." }));
+        return;
+      }
+      const sessions = LWLAT.sortSessions(parsed.sessions, ["AM", "PM"]);
+      const first = sessions[0], last = sessions[sessions.length - 1];
+      const weeks = new Set(sessions.map((s) => LWLAT.mondayOf(s.date))).size;
+
+      out.replaceChildren(el("div", { class: "card", style: "margin-top:20px" },
+        el("h3", { text: `Found in "${file.name}"` }),
+        el("ul", {},
+          el("li", { text: `${parsed.invigilators.length} invigilators: ${parsed.invigilators.join(", ")}` }),
+          el("li", { text: `${sessions.length} sessions over ${weeks} weeks, from ${LWLAT.formatLong(first.date)} ${first.date.slice(0, 4)} to ${LWLAT.formatLong(last.date)} ${last.date.slice(0, 4)}` }),
+          el("li", { text: `${parsed.stats.dutyCount} duties and ${parsed.stats.unavailableCount} "not available" sessions` }),
+          Object.keys(parsed.exams).length ? el("li", { text: `${Object.keys(parsed.exams).length} exam details from the "Exam details" sheet` }) : null),
+        parsed.warnings.length ? el("div", { class: "notice" }, el("strong", { text: "Please check:" }), el("ul", {}, parsed.warnings.map((w) => el("li", { text: w })))) : null,
+        el("p", { text: "Please check the dates are right, including the year. Using this file replaces the timetable. Exam details already typed in are kept." }),
+        el("div", { class: "row" },
+          el("button", { type: "button", text: "Use this spreadsheet", onclick: () => {
+            data.invigilators = parsed.invigilators;
+            data.sessions = parsed.sessions;
+            data.duties = parsed.duties;
+            data.exams = { ...data.exams, ...parsed.exams };
+            if (!data.title) data.title = parsed.sheetName;
+            changed();
+            out.replaceChildren(el("div", { class: "success", text: "The spreadsheet has been loaded. Check the Timetable tab, then press Save and publish so invigilators can see it." }));
+          } }),
+          el("button", { type: "button", class: "secondary", text: "Cancel", onclick: () => out.replaceChildren() }))));
+    }
+
+    // ---- Settings ----
+
+    $("title").addEventListener("input", (e) => { data.title = e.target.value; changed(); });
+    $("notice").addEventListener("input", (e) => { data.notice = e.target.value; changed(); });
+
+    function renderSettings() {
+      $("title").value = data.title ?? "";
+      $("notice").value = data.notice ?? "";
+
+      $("people").replaceChildren(...data.invigilators.map((name, i) => el("li", {},
+        el("span", { class: "grow", text: name }),
+        el("button", { type: "button", class: "secondary", text: "Rename", onclick: () => renamePerson(i) }),
+        el("button", { type: "button", class: "danger", text: "Remove", onclick: () => removePerson(i) }))));
+      if (!data.invigilators.length) $("people").append(el("li", { class: "muted", text: "No invigilators yet." }));
+
+      $("session-list").replaceChildren(...sortedSessions().map((s) => el("li", {},
+        el("span", { class: "grow", text: `${LWLAT.formatLong(s.date)} ${s.date.slice(0, 4)}, ${s.period}` }),
+        el("button", { type: "button", class: "danger", text: "Remove", onclick: () => removeSession(s) }))));
+      if (!data.sessions.length) $("session-list").append(el("li", { class: "muted", text: "No sessions yet." }));
+    }
+
+    function renamePerson(i) {
+      const old = data.invigilators[i];
+      const name = (prompt(`Rename ${old} to:`, old) ?? "").trim().replace(/\s+/g, " ");
+      if (!name || name === old) return;
+      if (data.invigilators.includes(name)) { alert(`There is already an invigilator called ${name}.`); return; }
+      data.invigilators[i] = name;
+      for (const sid of Object.keys(data.duties)) {
+        if (old in data.duties[sid]) { data.duties[sid][name] = data.duties[sid][old]; delete data.duties[sid][old]; }
+      }
+      changed();
+      renderSettings();
+    }
+
+    function removePerson(i) {
+      const name = data.invigilators[i];
+      if (!confirm(`Remove ${name} and all of their duties?`)) return;
+      data.invigilators.splice(i, 1);
+      for (const sid of Object.keys(data.duties)) delete data.duties[sid][name];
+      changed();
+      renderSettings();
+    }
+
+    $("add-person").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = $("new-person").value.trim().replace(/\s+/g, " ");
+      if (!name) return;
+      if (data.invigilators.includes(name)) { alert(`There is already an invigilator called ${name}.`); return; }
+      data.invigilators.push(name);
+      $("new-person").value = "";
+      changed();
+      renderSettings();
+    });
+
+    function removeSession(s) {
+      const sid = LWLAT.sessionId(s.date, s.period);
+      const count = Object.values(data.duties[sid] ?? {}).filter((v) => String(v).trim()).length;
+      if (!confirm(`Remove ${LWLAT.formatLong(s.date)} ${s.period}${count ? ` and its ${count} duties` : ""}?`)) return;
+      data.sessions = data.sessions.filter((x) => x !== s);
+      delete data.duties[sid];
+      changed();
+      renderSettings();
+    }
+
+    $("add-session").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const date = $("new-date").value;
+      const period = $("new-period").value;
+      if (!date) return;
+      if (data.sessions.some((s) => s.date === date && s.period === period)) { alert("That session is already in the timetable."); return; }
+      data.sessions.push({ date, period });
+      changed();
+      renderSettings();
+    });
+
+    // ---- Previous versions ----
+
+    async function renderVersions() {
+      const box = $("versions");
+      box.replaceChildren(el("p", { class: "muted", text: "Loading…" }));
+      try {
+        const { versions } = await api("/api/versions", { password });
+        if (!versions.length) { box.replaceChildren(el("p", { class: "muted", text: "There are no earlier versions yet." })); return; }
+        box.replaceChildren(el("ul", { class: "plain" }, versions.map((v) => el("li", {},
+          el("span", { class: "grow", text: `Version published ${LWLAT.formatStamp(v.savedAt)}` }),
+          el("button", { type: "button", class: "secondary", text: "Restore this version", onclick: () => restore(v) })))));
+      } catch (err) {
+        box.replaceChildren(el("div", { class: "error", text: err.message }));
+      }
+    }
+
+    async function restore(v) {
+      if (dirty && !confirm("You have unsaved changes, which will be lost. Continue?")) return;
+      if (!confirm(`Restore the version published ${LWLAT.formatStamp(v.savedAt)}? It will be published straight away.`)) return;
+      try {
+        const result = await api("/api/restore", { method: "POST", password, body: { key: v.key } });
+        data = Object.assign(LWLAT.emptyData(), result.data);
+        savedAt = result.data.updatedAt;
+        setDirty(false);
+        showMessage("That version has been restored and published.", "success");
+        renderVersions();
+      } catch (err) {
+        showMessage(err.message);
+      }
+    }
+
+    if (password) load(); else $("password").focus();
+  })();
+  </script>
+</body>
+</html>

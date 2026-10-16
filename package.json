@@ -1,0 +1,12 @@
+{
+  "name": "laninvigilators",
+  "private": true,
+  "type": "module",
+  "description": "Invigilator timetable finder with an admin page for the exams officer.",
+  "dependencies": {
+    "@netlify/blobs": "11.1.3"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

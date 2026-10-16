@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Invigilation Timetable</title>
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="stylesheet" href="assets/style.css">
+  <style>
+    .search-wrap { max-width: 640px; }
+    .names { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    .names button { background: var(--teal-tint); color: var(--teal-dark); border-color: var(--teal-tint-2); }
+    .names button:hover { background: var(--teal-tint-2); }
+    .week-nav { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
+    .week-nav h3 { margin: 0; flex: 1; min-width: 220px; }
+    .summary { font-size: 1.05rem; margin-bottom: 12px; }
+    tr.free td { color: var(--grey); }
+    tr.day-start td { border-top: 2px solid var(--teal); }
+    td.where { font-weight: bold; }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
+
+    /* On phones, show each session as a stacked block instead of a wide table. */
+    @media (max-width: 640px) {
+      table.timetable thead { display: none; }
+      table.timetable, table.timetable tbody, table.timetable tr, table.timetable td { display: block; width: 100%; }
+      table.timetable tr { border: 1px solid var(--grey-line); border-radius: 6px; margin-bottom: 10px; padding: 8px 4px; }
+      table.timetable tr.day-start td { border-top: none; }
+      table.timetable td { border: none; padding: 4px 10px; }
+      table.timetable td::before { content: attr(data-label) ": "; font-weight: bold; color: var(--grey); }
+      table.timetable td.day::before { content: ""; }
+      table.timetable td.day { font-weight: bold; color: var(--teal-dark); }
+      table.timetable td:empty { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="inner">
+      <img class="logo" src="assets/lwlat-logo-white.png" alt="Learning without Limits Academy Trust">
+      <div class="titles">
+        <h1>Invigilation timetable</h1>
+        <p id="subtitle"></p>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div id="loading" class="muted">Loading the timetable…</div>
+    <div id="message"></div>
+
+    <!-- Password (only shown if the site has one) -->
+    <section id="login" class="card hidden" aria-labelledby="login-heading">
+      <h2 id="login-heading">Enter the invigilator password</h2>
+      <p>The exams office will have given you this password.</p>
+      <form id="login-form" class="row">
+        <input id="password" type="password" autocomplete="current-password" aria-label="Password" required>
+        <button type="submit">Continue</button>
+      </form>
+    </section>
+
+    <!-- Name search -->
+    <section id="search" class="hidden" aria-labelledby="search-heading">
+      <div id="notice" class="notice hidden"></div>
+      <div class="search-wrap">
+        <h2 id="search-heading">Find your timetable</h2>
+        <label for="name-input">Type your name, then choose it from the list</label>
+        <input id="name-input" class="big" type="search" autocomplete="off" placeholder="For example, Andrea">
+      </div>
+      <div id="names" class="names" aria-live="polite"></div>
+    </section>
+
+    <!-- One person's timetable -->
+    <section id="timetable" class="hidden" aria-live="polite">
+      <div class="row no-print">
+        <button id="change-name" class="link" type="button">← Choose a different name</button>
+      </div>
+      <h2 id="person-name" style="margin-top:12px"></h2>
+      <div class="week-nav no-print">
+        <button id="prev-week" class="secondary" type="button">← Previous week</button>
+        <h3 id="week-label"></h3>
+        <button id="next-week" class="secondary" type="button">Next week →</button>
+      </div>
+      <p id="week-summary" class="summary"></p>
+      <table class="timetable">
+        <thead><tr><th>Day</th><th>Session</th><th>Where</th><th>Exam</th><th>Time</th></tr></thead>
+        <tbody id="week-body"></tbody>
+      </table>
+      <div class="actions no-print">
+        <button id="pdf-week" type="button">Download this week (PDF)</button>
+        <button id="pdf-all" class="secondary" type="button">Download all weeks (PDF)</button>
+      </div>
+      <p class="muted small" id="updated" style="margin-top:20px"></p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="inner">
+      Learning without Limits Academy Trust. If anything looks wrong, please speak to the exams office.
+    </div>
+  </footer>
+
+  <script src="assets/common.js"></script>
+  <script src="assets/vendor/jspdf.umd.min.js"></script>
+  <script src="assets/vendor/jspdf.plugin.autotable.min.js"></script>
+  <script>
+  (() => {
+    const { api, remember, recall, el } = LWLAT;
+    const $ = (id) => document.getElementById(id);
+    const PASSWORD_KEY = "lwlat-invig-password";
+
+    let data = null;
+    let password = recall(localStorage, PASSWORD_KEY) || "";
+    let person = null;
+    let weeks = [];       // Mondays (ISO) that have sessions
+    let weekIndex = 0;
+
+    function show(id) {
+      for (const s of ["login", "search", "timetable"]) $(s).classList.toggle("hidden", s !== id);
+    }
+    function showMessage(text, kind = "error") {
+      $("message").replaceChildren(text ? el("div", { class: kind, text }) : "");
+    }
+
+    async function load() {
+      try {
+        const result = await api("/api/timetable", { password });
+        data = result.data;
+        $("loading").classList.add("hidden");
+        if (!data || !data.invigilators?.length) {
+          showMessage("The timetable has not been published yet. Please check back later.", "notice");
+          return;
+        }
+        prepare();
+        const fromLink = decodeURIComponent(location.hash.slice(1));
+        const match = data.invigilators.find((n) => n === fromLink);
+        if (match) openPerson(match); else openSearch();
+      } catch (err) {
+        $("loading").classList.add("hidden");
+        if (err.status === 401) {
+          if (password) showMessage("That password was not recognised. Please try again.");
+          remember(localStorage, PASSWORD_KEY, null);
+          show("login");
+          $("password").focus();
+        } else {
+          showMessage("The timetable could not be loaded. Please check your connection and refresh the page.");
+        }
+      }
+    }
+
+    function prepare() {
+      $("subtitle").textContent = data.title || "";
+      document.title = data.title ? `${data.title} | Invigilation Timetable` : "Invigilation Timetable";
+      $("notice").textContent = data.notice || "";
+      $("notice").classList.toggle("hidden", !data.notice);
+      const periodOrder = LWLAT.periodOrderOf(data);
+      data.sessions = LWLAT.sortSessions(data.sessions, periodOrder);
+      weeks = [...new Set(data.sessions.map((s) => LWLAT.mondayOf(s.date)))].sort();
+      $("updated").textContent = data.updatedAt ? `Last updated ${LWLAT.formatStamp(data.updatedAt)}.` : "";
+    }
+
+    // ---- Search ----
+
+    function openSearch() {
+      person = null;
+      history.replaceState(null, "", location.pathname);
+      show("search");
+      renderNames();
+      $("name-input").focus();
+    }
+
+    function matchingNames() {
+      const q = LWLAT.normalise($("name-input").value);
+      const names = [...data.invigilators].sort((a, b) => a.localeCompare(b));
+      if (!q) return names;
+      return names.filter((n) => LWLAT.normalise(n).split(" ").some((part) => part.startsWith(q)) ||
+        LWLAT.normalise(n).startsWith(q));
+    }
+
+    function renderNames() {
+      const names = matchingNames();
+      $("names").replaceChildren(
+        ...(names.length
+          ? names.map((n) => el("button", { type: "button", text: n, onclick: () => openPerson(n) }))
+          : [el("p", { class: "muted", text: "No names match. Check the spelling, or speak to the exams office." })])
+      );
+    }
+
+    $("name-input").addEventListener("input", renderNames);
+    $("name-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        const names = matchingNames();
+        if (names.length === 1 || (names.length && LWLAT.normalise(names[0]) === LWLAT.normalise(e.target.value))) {
+          openPerson(names[0]);
+        }
+      }
+    });
+
+    // ---- One person's timetable ----
+
+    function openPerson(name) {
+      person = name;
+      history.replaceState(null, "", "#" + encodeURIComponent(name));
+      $("person-name").textContent = name;
+      weekIndex = defaultWeek(name);
+      show("timetable");
+      renderWeek();
+      window.scrollTo(0, 0);
+    }
+
+    // The week containing today, or the next week with a duty, or the first week.
+    function defaultWeek(name) {
+      const thisMonday = LWLAT.mondayOf(LWLAT.toISO(new Date()));
+      const today = weeks.indexOf(thisMonday);
+      if (today !== -1) return today;
+      const future = weeks.findIndex((w) => w > thisMonday &&
+        sessionsInWeek(w).some((s) => ["duty", "clash"].includes(LWLAT.entryFor(data, s, name).status)));
+      if (future !== -1) return future;
+      const anyFuture = weeks.findIndex((w) => w > thisMonday);
+      return anyFuture !== -1 ? anyFuture : Math.max(0, weeks.length - 1);
+    }
+
+    function sessionsInWeek(monday) {
+      return data.sessions.filter((s) => LWLAT.mondayOf(s.date) === monday);
+    }
+
+    function describe(entry) {
+      if (entry.status === "unavailable") return { where: "Not available", exam: "", time: "" };
+      if (entry.status === "free") return { where: "No duty", exam: "", time: "" };
+      return { where: entry.where, exam: entry.exam, time: entry.time };
+    }
+
+    function renderWeek() {
+      const monday = weeks[weekIndex];
+      $("week-label").textContent = LWLAT.formatWeek(monday);
+      $("prev-week").disabled = weekIndex === 0;
+      $("next-week").disabled = weekIndex === weeks.length - 1;
+
+      const entries = sessionsInWeek(monday).map((s) => LWLAT.entryFor(data, s, person));
+      const duties = entries.filter((e) => e.status === "duty" || e.status === "clash").length;
+      $("week-summary").textContent = duties === 0
+        ? "You have no invigilation duties this week."
+        : `You have ${duties} invigilation ${duties === 1 ? "duty" : "duties"} this week.`;
+
+      let lastDate = null;
+      $("week-body").replaceChildren(...entries.map((entry) => {
+        const d = describe(entry);
+        const firstOfDay = entry.session.date !== lastDate;
+        lastDate = entry.session.date;
+        const whereCell = el("td", { class: "where", "data-label": "Where" });
+        if (entry.status === "unavailable") whereCell.append(el("span", { class: "tag na", text: "Not available" }));
+        else if (entry.status === "clash") whereCell.append(el("span", { class: "tag clash", text: "Clash: please check with the exams office" }));
+        else whereCell.textContent = d.where;
+        return el("tr", { class: [entry.status === "free" || entry.status === "unavailable" ? "free" : "", firstOfDay ? "day-start" : ""].join(" ").trim() },
+          el("td", { class: "day", "data-label": "Day", text: firstOfDay ? LWLAT.formatLong(entry.session.date) : "" }),
+          el("td", { "data-label": "Session", text: entry.session.period }),
+          whereCell,
+          el("td", { "data-label": "Exam", text: d.exam }),
+          el("td", { "data-label": "Time", text: d.time }),
+        );
+      }));
+    }
+
+    $("prev-week").addEventListener("click", () => { weekIndex--; renderWeek(); });
+    $("next-week").addEventListener("click", () => { weekIndex++; renderWeek(); });
+    $("change-name").addEventListener("click", () => { $("name-input").value = ""; openSearch(); });
+
+    $("login-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      password = $("password").value;
+      remember(localStorage, PASSWORD_KEY, password);
+      showMessage("");
+      $("loading").classList.remove("hidden");
+      $("login").classList.add("hidden");
+      load();
+    });
+
+    // ---- PDF ----
+
+    async function downloadPdf(weekList) {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
+      const teal = [0, 145, 137];
+      const tealDark = [0, 112, 106];
+      const pageWidth = doc.internal.pageSize.getWidth();
+      let logo = null;
+      try { logo = await LWLAT.imageAsDataUrl("assets/lwlat-logo-white.png"); } catch { /* print without it */ }
+
+      const header = () => {
+        doc.setFillColor(...teal);
+        doc.rect(0, 0, pageWidth, 30, "F");
+        if (logo) doc.addImage(logo, "PNG", 10, 5, 50, 50 * 284 / 720, "lwlat-logo", "FAST");
+        doc.setTextColor(255, 255, 255);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(16);
+        doc.text("Invigilation timetable", pageWidth - 12, 13, { align: "right" });
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(11);
+        if (data.title) doc.text(data.title, pageWidth - 12, 21, { align: "right" });
+      };
+
+      let first = true;
+      for (const monday of weekList) {
+        if (!first) doc.addPage();
+        first = false;
+        header();
+        doc.setTextColor(...tealDark);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(18);
+        doc.text(person, 14, 44);
+        doc.setFontSize(12);
+        doc.text(LWLAT.formatWeek(monday), 14, 52);
+
+        let lastDate = null;
+        const rows = sessionsInWeek(monday).map((s) => {
+          const entry = LWLAT.entryFor(data, s, person);
+          const d = describe(entry);
+          const day = s.date !== lastDate ? LWLAT.formatLong(s.date) : "";
+          lastDate = s.date;
+          const where = entry.status === "clash" ? "CLASH: check with the exams office" : d.where;
+          return { cells: [day, s.period, where, d.exam, d.time], status: entry.status };
+        });
+
+        doc.autoTable({
+          startY: 58,
+          head: [["Day", "Session", "Where", "Exam", "Time"]],
+          body: rows.map((r) => r.cells),
+          theme: "grid",
+          styles: { font: "helvetica", fontSize: 10, cellPadding: 2.5, lineColor: [212, 213, 214], textColor: [31, 32, 33] },
+          headStyles: { fillColor: tealDark, textColor: 255, fontStyle: "bold" },
+          columnStyles: { 0: { cellWidth: 42 }, 1: { cellWidth: 20 }, 2: { fontStyle: "bold" } },
+          didParseCell: (hook) => {
+            if (hook.section !== "body") return;
+            const status = rows[hook.row.index].status;
+            if (status === "free" || status === "unavailable") hook.cell.styles.textColor = [99, 100, 102];
+            if (status === "free" || status === "unavailable") hook.cell.styles.fontStyle = "normal";
+            if (status === "clash") hook.cell.styles.textColor = [206, 21, 63];
+          },
+          margin: { left: 14, right: 14, top: 36 },
+          willDrawPage: (hook) => { if (hook.pageNumber > 1) header(); },
+        });
+      }
+
+      const pages = doc.getNumberOfPages();
+      for (let i = 1; i <= pages; i++) {
+        doc.setPage(i);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(99, 100, 102);
+        const stamp = data.updatedAt ? `Timetable last updated ${LWLAT.formatStamp(data.updatedAt)}. ` : "";
+        doc.text(stamp, 14, 283);
+        doc.text("Changes can happen, so please check the website before each session.", 14, 288);
+        doc.text(`Page ${i} of ${pages}`, pageWidth - 14, 288, { align: "right" });
+      }
+
+      const safeName = person.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "");
+      const suffix = weekList.length === 1 ? weekList[0] : "all-weeks";
+      doc.save(`Invigilation-timetable-${safeName}-${suffix}.pdf`);
+    }
+
+    $("pdf-week").addEventListener("click", () => downloadPdf([weeks[weekIndex]]));
+    // Leave out weeks where this person has nothing at all.
+    $("pdf-all").addEventListener("click", () => {
+      const busy = weeks.filter((w) => sessionsInWeek(w).some((s) => ["duty", "clash"].includes(LWLAT.entryFor(data, s, person).status)));
+      downloadPdf(busy.length ? busy : weeks);
+    });
+
+    load();
+  })();
+  </script>
+</body>
+</html>
