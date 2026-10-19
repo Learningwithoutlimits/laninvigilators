@@ -24,10 +24,19 @@
     .savebar .status.clean { color: var(--teal-dark); }
 
     .schools { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 24px; }
-    .schools button { text-align: left; padding: 14px 18px; font-size: 1.1rem; background: var(--white); color: var(--teal-dark); border: 2px solid var(--teal); border-top-width: 6px; border-radius: var(--radius); }
-    .schools button:hover { background: var(--teal-tint); }
-    .schools button[aria-selected="true"] { background: var(--teal-dark); border-color: var(--teal-dark); color: var(--white); }
-    .schools button .sub { display: block; font-size: 0.85rem; font-weight: normal; margin-top: 2px; }
+    /* Each tab takes its school's colour from --school: the name on the colour in large bold
+       type, the smaller label on white below. The chosen school gets a dark outline. */
+    .schools button {
+      display: flex; flex-direction: column; padding: 0; overflow: hidden; text-align: left;
+      background: var(--white); color: var(--ink); font-weight: normal;
+      border: 2px solid var(--school); border-radius: var(--radius);
+    }
+    .schools button:hover { background: var(--white); border-color: var(--school); }
+    .schools button .band { display: block; padding: 12px 16px; background: var(--school); color: var(--white); font-size: 1.2rem; font-weight: bold; }
+    .schools button:hover .band { text-decoration: underline; box-shadow: inset 0 -5px 0 rgba(0, 0, 0, 0.25); }
+    .schools button .sub { display: block; padding: 8px 16px 10px; font-size: 0.9rem; }
+    .schools button[aria-selected="true"] { outline: 4px solid var(--ink); outline-offset: 2px; }
+    .schools button[aria-selected="true"] .sub { font-weight: bold; }
     .tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 2px solid var(--teal); margin-bottom: 20px; }
     .tabs button { background: var(--white); color: var(--teal-dark); border: 2px solid var(--teal-tint-2); border-bottom: none; border-radius: 6px 6px 0 0; }
     .tabs button[aria-selected="true"] { background: var(--teal); border-color: var(--teal); color: var(--white); }
@@ -292,8 +301,10 @@
     function renderSchoolTabs() {
       $("school-tabs").replaceChildren(...LWLAT.SCHOOLS.map((s) => el("button", {
         type: "button", role: "tab", "aria-selected": String(s.id === schoolId),
+        style: `--school: ${s.colour}`,
         onclick: () => switchSchool(s.id),
-      }, s.name, el("span", { class: "sub", text: s.id === "lancaster" ? "Upload and edit" : "Not set up yet" }))));
+      }, el("span", { class: "band", text: s.name }),
+         el("span", { class: "sub", text: (s.id === "lancaster" ? "Upload and edit" : "Not set up yet") + (s.id === schoolId ? " (selected)" : "") }))));
     }
 
     function switchSchool(id) {

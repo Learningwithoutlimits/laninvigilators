@@ -10,23 +10,26 @@
   <link rel="stylesheet" href="assets/style.css">
   <style>
     .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 16px; }
+    /* Each tile takes its school's colour from --school. The name sits on the colour in large
+       bold type, which keeps white text readable. Smaller text sits on white below it. */
     .tile {
-      display: flex; flex-direction: column; justify-content: space-between; gap: 12px;
-      min-height: 150px; padding: 22px; text-align: left;
-      background: var(--white); color: var(--teal-dark);
-      border: 2px solid var(--teal); border-top-width: 8px; border-radius: var(--radius);
-      font-size: 1.3rem;
+      display: flex; flex-direction: column; padding: 0; overflow: hidden; text-align: left;
+      background: var(--white); color: var(--ink); font-weight: normal;
+      border: 2px solid var(--school); border-radius: var(--radius);
     }
-    .tile:hover { background: var(--teal-tint); }
-    .tile .status { font-size: 0.95rem; font-weight: normal; color: var(--ink); }
-    .tile .go { font-size: 0.95rem; }
-    .tile.unavailable { border-color: var(--grey-line); color: var(--grey); }
-    .tile.unavailable:hover { background: var(--grey-tint); }
-    .tile.unavailable .status { color: var(--grey); }
+    .tile:hover { background: var(--white); border-color: var(--school); }
+    .tile .band {
+      display: flex; align-items: flex-end; min-height: 96px; padding: 18px 22px;
+      background: var(--school); color: var(--white); font-size: 1.35rem; font-weight: bold; line-height: 1.25;
+    }
+    .tile:hover .band { text-decoration: underline; box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.25); }
+    .tile .body { display: block; padding: 14px 22px 18px; }
+    .tile .status { display: block; }
+    .tile .go { display: block; margin-top: 6px; font-weight: bold; }
+    .tile.unavailable .body { color: var(--grey); }
     .search-wrap { max-width: 640px; }
-    .names { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-    .names button { background: var(--teal-tint); color: var(--teal-dark); border-color: var(--teal-tint-2); }
-    .names button:hover { background: var(--teal-tint-2); }
+    .find-form { display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch; }
+    .find-form input { flex: 1; min-width: 220px; }
     .week-nav { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
     .week-nav h3 { margin: 0; flex: 1; min-width: 220px; }
     .summary { font-size: 1.05rem; margin-bottom: 12px; }
@@ -89,10 +92,13 @@
       <div id="notice" class="notice hidden"></div>
       <div class="search-wrap">
         <h2 id="search-heading">Find your timetable</h2>
-        <label for="name-input">Type your name, then choose it from the list</label>
-        <input id="name-input" class="big" type="search" autocomplete="off" placeholder="For example, Andrea">
+        <form id="find-form" class="find-form">
+          <label for="name-input" style="flex-basis:100%; margin:0">Type your first name</label>
+          <input id="name-input" class="big" type="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Your first name" required>
+          <button type="submit">Find my timetable</button>
+        </form>
       </div>
-      <div id="names" class="names" aria-live="polite"></div>
+      <div id="search-message" aria-live="polite" style="max-width:640px"></div>
     </section>
 
     <!-- One person's timetable -->
@@ -195,12 +201,14 @@
         return el("button", {
           type: "button",
           class: "tile" + (info.available ? "" : " unavailable"),
+          style: `--school: ${s.colour}`,
           onclick: () => info.available ? openSchool(s.id) : $("school-message").replaceChildren(
             el("div", { class: "notice", text: `The timetable for ${s.name} has not been published yet. Please check back later.` })),
         },
-        el("span", { text: s.name }),
-        el("span", { class: "status", text: info.available ? (info.title || "Timetable available") : "Coming soon" }),
-        info.available ? el("span", { class: "go", text: "Find your timetable →" }) : null);
+        el("span", { class: "band", text: s.name }),
+        el("span", { class: "body" },
+          el("span", { class: "status", text: info.available ? (info.title || "Timetable available") : "Coming soon" }),
+          info.available ? el("span", { class: "go", text: "Find your timetable →" }) : null));
       }));
     }
 
@@ -236,36 +244,30 @@
     function openSearch() {
       person = null;
       history.replaceState(null, "", "#" + school.id);
+      $("search-message").replaceChildren();
       show("search");
-      renderNames();
       $("name-input").focus();
     }
 
-    function matchingNames() {
-      const q = LWLAT.normalise($("name-input").value);
-      const names = [...data.invigilators].sort((a, b) => a.localeCompare(b));
-      if (!q) return names;
-      return names.filter((n) => LWLAT.normalise(n).split(" ").some((part) => part.startsWith(q)) ||
-        LWLAT.normalise(n).startsWith(q));
+    // Names are never listed. A typed name must match a whole name, or the first
+    // name of exactly one invigilator. Capitals and extra spaces do not matter.
+    function findPerson(typed) {
+      const q = LWLAT.normalise(typed);
+      if (!q) return { match: null };
+      const exact = data.invigilators.find((n) => LWLAT.normalise(n) === q);
+      if (exact) return { match: exact };
+      const byFirst = data.invigilators.filter((n) => LWLAT.normalise(n).split(" ")[0] === q);
+      if (byFirst.length === 1) return { match: byFirst[0] };
+      return { match: null, several: byFirst.length > 1 };
     }
 
-    function renderNames() {
-      const names = matchingNames();
-      $("names").replaceChildren(
-        ...(names.length
-          ? names.map((n) => el("button", { type: "button", text: n, onclick: () => openPerson(n) }))
-          : [el("p", { class: "muted", text: "No names match. Check the spelling, or speak to the exams office." })])
-      );
-    }
-
-    $("name-input").addEventListener("input", renderNames);
-    $("name-input").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        const names = matchingNames();
-        if (names.length === 1 || (names.length && LWLAT.normalise(names[0]) === LWLAT.normalise(e.target.value))) {
-          openPerson(names[0]);
-        }
-      }
+    $("find-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const { match, several } = findPerson($("name-input").value);
+      if (match) { openPerson(match); return; }
+      $("search-message").replaceChildren(el("div", { class: "error", text: several
+        ? "More than one invigilator has that first name. Please type your full name as the exams office has it."
+        : "We could not find that name. Please check the spelling, or speak to the exams office." }));
     });
 
     // ---- One person's timetable ----

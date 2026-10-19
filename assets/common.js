@@ -3,9 +3,9 @@
 const LWLAT = (() => {
   // The schools, matching the list in netlify/functions/timetable.mjs.
   const SCHOOLS = [
-    { id: "lancaster", name: "Lancaster Academy" },
-    { id: "babington", name: "Babington Academy" },
-    { id: "south-wigston", name: "South Wigston High School" },
+    { id: "lancaster", name: "Lancaster Academy", colour: "#182d70" },
+    { id: "babington", name: "Babington Academy", colour: "#009f9a" },
+    { id: "south-wigston", name: "South Wigston High School", colour: "#1c6a9b" },
   ];
   const schoolById = (id) => SCHOOLS.find((s) => s.id === id) ?? null;
 
