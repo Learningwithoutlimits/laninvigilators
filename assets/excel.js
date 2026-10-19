@@ -228,7 +228,7 @@ const LWLAT_EXCEL = (() => {
         if (LWLAT.isClash(v)) clashes.push(`${name} (${LWLAT.formatShort(s.date)} ${s.period})`);
       }
     }
-    if (clashes.length) warnings.push(`Cells marked CLASH: ${clashes.join(", ")}. Invigilators will be asked to check with the exams office.`);
+    if (clashes.length) warnings.push(`Cells marked CLASH: ${clashes.join(", ")}. Invigilators will be asked to speak to the Exams Officer.`);
     const anyDateless = sessions.length === 0;
     if (anyDateless) throw new Error("I found the names but no sessions with dates underneath them.");
 

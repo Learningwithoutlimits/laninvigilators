@@ -323,7 +323,7 @@
         lastDate = entry.session.date;
         const whereCell = el("td", { class: "where", "data-label": "Where" });
         if (entry.status === "unavailable") whereCell.append(el("span", { class: "tag na", text: "Not available" }));
-        else if (entry.status === "clash") whereCell.append(el("span", { class: "tag clash", text: "Clash: please check with the exams office" }));
+        else if (entry.status === "clash") whereCell.append(el("span", { class: "tag clash", text: "Clash: please speak to the Exams Officer" }));
         else whereCell.textContent = d.where;
         return el("tr", { class: [entry.status === "free" || entry.status === "unavailable" ? "free" : "", firstOfDay ? "day-start" : ""].join(" ").trim() },
           el("td", { class: "day", "data-label": "Day", text: firstOfDay ? LWLAT.formatLong(entry.session.date) : "" }),
@@ -392,7 +392,7 @@
           const d = describe(entry);
           const day = s.date !== lastDate ? LWLAT.formatLong(s.date) : "";
           lastDate = s.date;
-          const where = entry.status === "clash" ? "CLASH: check with the exams office" : d.where;
+          const where = entry.status === "clash" ? "Clash: please speak to the Exams Officer" : d.where;
           return { cells: [day, s.period, where, d.exam, d.time], status: entry.status };
         });
 

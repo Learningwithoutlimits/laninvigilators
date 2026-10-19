@@ -49,7 +49,7 @@ To change a password later, edit the environment variable and redeploy (step 5).
 - A row of first names across the top, with columns of days, dates (such as "9th Nov") and sessions (AM or PM) down the left.
 - Each cell holds the room or duty, such as Hall, Gym, Ma 5 or Roving.
 - **Grey-shaded empty cells mean "not available"**, as do cells containing `N/A`.
-- Cells reading `CLASH` are shown to the invigilator as "Clash: please check with the exams office".
+- Cells reading `CLASH` are shown to the invigilator as "Clash: please speak to the Exams Officer".
 - Dates without a year are given the year that matches the day name.
 
 ## Data protection
