@@ -1,6 +1,14 @@
 // Shared helpers for the invigilator page and the admin page.
 
 const LWLAT = (() => {
+  // The schools, matching the list in netlify/functions/timetable.mjs.
+  const SCHOOLS = [
+    { id: "lancaster", name: "Lancaster Academy" },
+    { id: "babington", name: "Babington Academy" },
+    { id: "south-wigston", name: "South Wigston High School" },
+  ];
+  const schoolById = (id) => SCHOOLS.find((s) => s.id === id) ?? null;
+
   const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July",
     "August", "September", "October", "November", "December"];
@@ -168,6 +176,7 @@ const LWLAT = (() => {
   }
 
   return {
+    SCHOOLS, schoolById,
     api, remember, recall,
     parseISO, toISO, mondayOf, formatLong, formatShort, formatWeek, formatStamp,
     sessionId, normalise, isUnavailable, isClash, examKey, sortSessions, periodOrderOf,

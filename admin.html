@@ -23,6 +23,11 @@
     .savebar .status.dirty { color: var(--red); }
     .savebar .status.clean { color: var(--teal-dark); }
 
+    .schools { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .schools button { text-align: left; padding: 14px 18px; font-size: 1.1rem; background: var(--white); color: var(--teal-dark); border: 2px solid var(--teal); border-top-width: 6px; border-radius: var(--radius); }
+    .schools button:hover { background: var(--teal-tint); }
+    .schools button[aria-selected="true"] { background: var(--teal-dark); border-color: var(--teal-dark); color: var(--white); }
+    .schools button .sub { display: block; font-size: 0.85rem; font-weight: normal; margin-top: 2px; }
     .tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 2px solid var(--teal); margin-bottom: 20px; }
     .tabs button { background: var(--white); color: var(--teal-dark); border: 2px solid var(--teal-tint-2); border-bottom: none; border-radius: 6px 6px 0 0; }
     .tabs button[aria-selected="true"] { background: var(--teal); border-color: var(--teal); color: var(--white); }
@@ -104,7 +109,14 @@
     </section>
 
     <div id="app" class="hidden">
-      <nav class="tabs" role="tablist">
+      <nav class="schools" role="tablist" aria-label="Schools" id="school-tabs"></nav>
+
+      <section id="locked" class="card hidden">
+        <h2 id="locked-heading"></h2>
+        <p>Uploads and changes are switched on for Lancaster Academy only at the moment. This school's timetable will appear here once it has been set up.</p>
+      </section>
+
+      <nav class="tabs" role="tablist" id="section-tabs">
         <button role="tab" data-tab="grid" type="button">Timetable</button>
         <button role="tab" data-tab="exams" type="button">Exam details</button>
         <button role="tab" data-tab="upload" type="button">Upload spreadsheet</button>
@@ -216,6 +228,9 @@
     let savedAt = null;       // updatedAt of the version this copy was based on
     let dirty = false;
     let activeTab = "grid";
+    let schoolId = "lancaster";
+    let editable = true;
+    const q = () => `?school=${encodeURIComponent(schoolId)}`;
 
     // ---- Messages and status ----
 
@@ -241,7 +256,7 @@
 
     async function load() {
       try {
-        const result = await api("/api/timetable", { password });
+        const result = await api("/api/timetable" + q(), { password });
         if (result.role !== "admin") {
           showMessage("That is the invigilator password. Please enter the admin password.");
           signOut();
@@ -250,12 +265,18 @@
         remember(sessionStorage, PASSWORD_KEY, password);
         data = Object.assign(LWLAT.emptyData(), result.data || {});
         savedAt = result.data?.updatedAt ?? null;
+        editable = result.editable !== false;
         $("login").classList.add("hidden");
         $("app").classList.remove("hidden");
-        $("savebar").classList.remove("hidden");
+        renderSchoolTabs();
+        $("savebar").classList.toggle("hidden", !editable);
+        $("section-tabs").classList.toggle("hidden", !editable);
+        $("locked").classList.toggle("hidden", editable);
+        $("locked-heading").textContent = LWLAT.schoolById(schoolId).name;
         setDirty(false);
         showMessage("");
-        openTab(data.sessions.length ? "grid" : "upload");
+        if (editable) openTab(data.sessions.length ? "grid" : "upload");
+        else document.querySelectorAll(".tab").forEach((t) => t.classList.add("hidden"));
       } catch (err) {
         if (err.status === 401) {
           showMessage(password ? "That password was not recognised." : "");
@@ -264,6 +285,24 @@
           showMessage(err.message);
         }
       }
+    }
+
+    // ---- Schools ----
+
+    function renderSchoolTabs() {
+      $("school-tabs").replaceChildren(...LWLAT.SCHOOLS.map((s) => el("button", {
+        type: "button", role: "tab", "aria-selected": String(s.id === schoolId),
+        onclick: () => switchSchool(s.id),
+      }, s.name, el("span", { class: "sub", text: s.id === "lancaster" ? "Upload and edit" : "Not set up yet" }))));
+    }
+
+    function switchSchool(id) {
+      if (id === schoolId) return;
+      if (dirty && !confirm("You have unsaved changes for this school, which will be lost. Continue?")) return;
+      schoolId = id;
+      dirty = false;
+      $("upload-result").replaceChildren();
+      load();
     }
 
     function signOut() {
@@ -288,7 +327,7 @@
       $("save-status").textContent = "Saving…";
       try {
         tidy();
-        const result = await api("/api/timetable", { method: "PUT", password, body: { data, baseUpdatedAt: savedAt, force } });
+        const result = await api("/api/timetable" + q(), { method: "PUT", password, body: { data, baseUpdatedAt: savedAt, force } });
         data = Object.assign(LWLAT.emptyData(), result.data);
         savedAt = result.data.updatedAt;
         setDirty(false);
@@ -592,7 +631,7 @@
       const box = $("versions");
       box.replaceChildren(el("p", { class: "muted", text: "Loading…" }));
       try {
-        const { versions } = await api("/api/versions", { password });
+        const { versions } = await api("/api/versions" + q(), { password });
         if (!versions.length) { box.replaceChildren(el("p", { class: "muted", text: "There are no earlier versions yet." })); return; }
         box.replaceChildren(el("ul", { class: "plain" }, versions.map((v) => el("li", {},
           el("span", { class: "grow", text: `Version published ${LWLAT.formatStamp(v.savedAt)}` }),
@@ -606,7 +645,7 @@
       if (dirty && !confirm("You have unsaved changes, which will be lost. Continue?")) return;
       if (!confirm(`Restore the version published ${LWLAT.formatStamp(v.savedAt)}? It will be published straight away.`)) return;
       try {
-        const result = await api("/api/restore", { method: "POST", password, body: { key: v.key } });
+        const result = await api("/api/restore" + q(), { method: "POST", password, body: { key: v.key } });
         data = Object.assign(LWLAT.emptyData(), result.data);
         savedAt = result.data.updatedAt;
         setDirty(false);

@@ -8,13 +8,20 @@
 import { getStore } from "@netlify/blobs";
 import { createHash, timingSafeEqual } from "node:crypto";
 
-const CURRENT_KEY = "current";
-const BACKUP_PREFIX = "backups/";
 const MAX_BACKUPS = 30;
 const MAX_BODY_BYTES = 2_000_000;
 
+// The schools, matching the list in assets/common.js. Lancaster keeps the
+// original storage keys so its existing timetable carries over unchanged.
+// "editable" controls whether the admin page may upload or change that school.
+const SCHOOLS = {
+  lancaster: { prefix: "", editable: true },
+  babington: { prefix: "babington/", editable: false },
+  "south-wigston": { prefix: "south-wigston/", editable: false },
+};
+
 export const config = {
-  path: ["/api/timetable", "/api/versions", "/api/restore"],
+  path: ["/api/timetable", "/api/versions", "/api/restore", "/api/schools"],
 };
 
 export default async (req) => {
@@ -33,13 +40,33 @@ export async function handle(req, store, env) {
   }
 
   try {
+    // A summary of every school, for the tiles on the invigilator page.
+    if (url.pathname === "/api/schools" && req.method === "GET") {
+      const schools = [];
+      for (const [id, school] of Object.entries(SCHOOLS)) {
+        const data = await store.get(school.prefix + "current", { type: "json" });
+        schools.push({ id, available: Boolean(data?.sessions?.length), title: data?.title ?? "", editable: school.editable });
+      }
+      return json(200, { role, schools });
+    }
+
+    const schoolId = url.searchParams.get("school") || "lancaster";
+    const school = SCHOOLS[schoolId];
+    if (!school) return json(404, { error: "Unknown school." });
+    const CURRENT_KEY = school.prefix + "current";
+    const BACKUP_PREFIX = school.prefix + "backups/";
+
     if (url.pathname === "/api/timetable" && req.method === "GET") {
       const data = await store.get(CURRENT_KEY, { type: "json" });
-      return json(200, { role, data: data ?? null });
+      return json(200, { role, editable: school.editable, data: data ?? null });
     }
 
     // Everything below needs the admin password.
     if (role !== "admin") return json(403, { error: "Admin password required." });
+
+    if (!school.editable && req.method !== "GET") {
+      return json(403, { error: "Changes are switched on for Lancaster Academy only." });
+    }
 
     if (url.pathname === "/api/timetable" && req.method === "PUT") {
       const body = await readBody(req);
@@ -55,7 +82,7 @@ export async function handle(req, store, env) {
         });
       }
 
-      const saved = await saveWithBackup(store, current, body.data);
+      const saved = await saveWithBackup(store, CURRENT_KEY, BACKUP_PREFIX, current, body.data);
       return json(200, { data: saved });
     }
 
@@ -76,7 +103,7 @@ export async function handle(req, store, env) {
       const old = await store.get(key, { type: "json" });
       if (!old) return json(404, { error: "That version no longer exists." });
       const current = await store.get(CURRENT_KEY, { type: "json" });
-      const saved = await saveWithBackup(store, current, old);
+      const saved = await saveWithBackup(store, CURRENT_KEY, BACKUP_PREFIX, current, old);
       return json(200, { data: saved });
     }
 
@@ -87,18 +114,18 @@ export async function handle(req, store, env) {
   }
 }
 
-async function saveWithBackup(store, current, data) {
+async function saveWithBackup(store, currentKey, backupPrefix, current, data) {
   if (current?.updatedAt) {
-    await store.setJSON(BACKUP_PREFIX + current.updatedAt, current);
-    await pruneBackups(store);
+    await store.setJSON(backupPrefix + current.updatedAt, current);
+    await pruneBackups(store, backupPrefix);
   }
   const saved = { ...data, updatedAt: new Date().toISOString() };
-  await store.setJSON(CURRENT_KEY, saved);
+  await store.setJSON(currentKey, saved);
   return saved;
 }
 
-async function pruneBackups(store) {
-  const { blobs } = await store.list({ prefix: BACKUP_PREFIX });
+async function pruneBackups(store, backupPrefix) {
+  const { blobs } = await store.list({ prefix: backupPrefix });
   const keys = blobs.map((b) => b.key).sort();
   for (const key of keys.slice(0, Math.max(0, keys.length - MAX_BACKUPS))) {
     await store.delete(key);

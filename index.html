@@ -9,6 +9,20 @@
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <link rel="stylesheet" href="assets/style.css">
   <style>
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 16px; }
+    .tile {
+      display: flex; flex-direction: column; justify-content: space-between; gap: 12px;
+      min-height: 150px; padding: 22px; text-align: left;
+      background: var(--white); color: var(--teal-dark);
+      border: 2px solid var(--teal); border-top-width: 8px; border-radius: var(--radius);
+      font-size: 1.3rem;
+    }
+    .tile:hover { background: var(--teal-tint); }
+    .tile .status { font-size: 0.95rem; font-weight: normal; color: var(--ink); }
+    .tile .go { font-size: 0.95rem; }
+    .tile.unavailable { border-color: var(--grey-line); color: var(--grey); }
+    .tile.unavailable:hover { background: var(--grey-tint); }
+    .tile.unavailable .status { color: var(--grey); }
     .search-wrap { max-width: 640px; }
     .names { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
     .names button { background: var(--teal-tint); color: var(--teal-dark); border-color: var(--teal-tint-2); }
@@ -60,8 +74,18 @@
       </form>
     </section>
 
+    <!-- School tiles -->
+    <section id="schools" class="hidden" aria-labelledby="schools-heading">
+      <h2 id="schools-heading">Choose your school</h2>
+      <div id="tiles" class="tiles"></div>
+      <div id="school-message" style="margin-top:16px"></div>
+    </section>
+
     <!-- Name search -->
     <section id="search" class="hidden" aria-labelledby="search-heading">
+      <div class="row no-print" style="margin-bottom:12px">
+        <button id="change-school" class="link" type="button">← Choose a different school</button>
+      </div>
       <div id="notice" class="notice hidden"></div>
       <div class="search-wrap">
         <h2 id="search-heading">Find your timetable</h2>
@@ -111,31 +135,38 @@
     const PASSWORD_KEY = "lwlat-invig-password";
 
     let data = null;
+    let school = null;    // the school being viewed
+    let schools = [];     // summaries from the server, for the tiles
     let password = recall(localStorage, PASSWORD_KEY) || "";
     let person = null;
     let weeks = [];       // Mondays (ISO) that have sessions
     let weekIndex = 0;
 
     function show(id) {
-      for (const s of ["login", "search", "timetable"]) $(s).classList.toggle("hidden", s !== id);
+      for (const s of ["login", "schools", "search", "timetable"]) $(s).classList.toggle("hidden", s !== id);
     }
     function showMessage(text, kind = "error") {
       $("message").replaceChildren(text ? el("div", { class: kind, text }) : "");
     }
 
+    // Links look like #lancaster or #lancaster/Andrea. An older #Andrea link means Lancaster.
+    function readLink() {
+      const parts = decodeURIComponent(location.hash.slice(1)).split("/");
+      if (LWLAT.schoolById(parts[0])) return { schoolId: parts[0], name: parts.slice(1).join("/") };
+      return { schoolId: parts[0] ? "lancaster" : "", name: parts[0] };
+    }
+
     async function load() {
       try {
-        const result = await api("/api/timetable", { password });
-        data = result.data;
+        const result = await api("/api/schools", { password });
+        schools = result.schools;
         $("loading").classList.add("hidden");
-        if (!data || !data.invigilators?.length) {
-          showMessage("The timetable has not been published yet. Please check back later.", "notice");
-          return;
+        const link = readLink();
+        if (link.schoolId && schools.find((s) => s.id === link.schoolId)?.available) {
+          await openSchool(link.schoolId, link.name);
+        } else {
+          openSchools();
         }
-        prepare();
-        const fromLink = decodeURIComponent(location.hash.slice(1));
-        const match = data.invigilators.find((n) => n === fromLink);
-        if (match) openPerson(match); else openSearch();
       } catch (err) {
         $("loading").classList.add("hidden");
         if (err.status === 401) {
@@ -149,9 +180,49 @@
       }
     }
 
+    // ---- School tiles ----
+
+    function openSchools() {
+      school = null;
+      data = null;
+      history.replaceState(null, "", location.pathname);
+      $("subtitle").textContent = "";
+      document.title = "Exam Invigilators";
+      $("school-message").replaceChildren();
+      show("schools");
+      $("tiles").replaceChildren(...LWLAT.SCHOOLS.map((s) => {
+        const info = schools.find((x) => x.id === s.id) ?? {};
+        return el("button", {
+          type: "button",
+          class: "tile" + (info.available ? "" : " unavailable"),
+          onclick: () => info.available ? openSchool(s.id) : $("school-message").replaceChildren(
+            el("div", { class: "notice", text: `The timetable for ${s.name} has not been published yet. Please check back later.` })),
+        },
+        el("span", { text: s.name }),
+        el("span", { class: "status", text: info.available ? (info.title || "Timetable available") : "Coming soon" }),
+        info.available ? el("span", { class: "go", text: "Find your timetable →" }) : null);
+      }));
+    }
+
+    async function openSchool(id, name = "") {
+      try {
+        const result = await api(`/api/timetable?school=${encodeURIComponent(id)}`, { password });
+        if (!result.data?.invigilators?.length) { openSchools(); return; }
+        school = LWLAT.schoolById(id);
+        data = result.data;
+        prepare();
+        const match = data.invigilators.find((n) => n === name);
+        if (match) openPerson(match); else openSearch();
+      } catch {
+        showMessage("The timetable could not be loaded. Please check your connection and refresh the page.");
+      }
+    }
+
+    $("change-school").addEventListener("click", () => { $("name-input").value = ""; openSchools(); });
+
     function prepare() {
-      $("subtitle").textContent = data.title || "";
-      document.title = data.title ? `${data.title} | Exam Invigilators` : "Exam Invigilators";
+      $("subtitle").textContent = data.title ? `${school.name}: ${data.title}` : school.name;
+      document.title = `${school.name} | Exam Invigilators`;
       $("notice").textContent = data.notice || "";
       $("notice").classList.toggle("hidden", !data.notice);
       const periodOrder = LWLAT.periodOrderOf(data);
@@ -164,7 +235,7 @@
 
     function openSearch() {
       person = null;
-      history.replaceState(null, "", location.pathname);
+      history.replaceState(null, "", "#" + school.id);
       show("search");
       renderNames();
       $("name-input").focus();
@@ -201,7 +272,7 @@
 
     function openPerson(name) {
       person = name;
-      history.replaceState(null, "", "#" + encodeURIComponent(name));
+      history.replaceState(null, "", `#${school.id}/${encodeURIComponent(name)}`);
       $("person-name").textContent = name;
       weekIndex = defaultWeek(name);
       show("timetable");
@@ -297,7 +368,8 @@
         doc.text("Exam invigilators", pageWidth - 12, 13, { align: "right" });
         doc.setFont("helvetica", "normal");
         doc.setFontSize(11);
-        if (data.title) doc.text(data.title, pageWidth - 12, 21, { align: "right" });
+        doc.text(school.name, pageWidth - 12, 21, { align: "right" });
+        if (data.title) { doc.setFontSize(9); doc.text(data.title, pageWidth - 12, 26.5, { align: "right" }); }
       };
 
       let first = true;
@@ -356,7 +428,7 @@
 
       const safeName = person.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "");
       const suffix = weekList.length === 1 ? weekList[0] : "all-weeks";
-      doc.save(`Exam-invigilators-${safeName}-${suffix}.pdf`);
+      doc.save(`Exam-invigilators-${school.id}-${safeName}-${suffix}.pdf`);
     }
 
     $("pdf-week").addEventListener("click", () => downloadPdf([weeks[weekIndex]]));

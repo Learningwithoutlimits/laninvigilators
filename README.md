@@ -7,6 +7,14 @@ A small website where invigilators type their name and see where they are invigi
 
 It follows the LwLAT Brand Guidelines (v1.0, October 2026): teal as the lead colour, Arial as the everyday font and the master logo artwork from the Marketing SharePoint.
 
+## Schools
+
+The main page opens with three tiles: Lancaster Academy, Babington Academy and South Wigston High School. Each school has its own timetable. A school with no published timetable shows "Coming soon".
+
+The admin page uses one password for all three, with a tab for each school. Only Lancaster Academy can be uploaded to or changed at the moment. The other two show "Not set up yet", and the server refuses any change to them.
+
+**To switch on another school later:** in `netlify/functions/timetable.mjs`, change `editable: false` to `editable: true` for that school, and in `admin.html` change the "Upload and edit" label line so it covers that school too. Then upload the files to GitHub as usual.
+
 ## How it works
 
 The site is plain HTML pages hosted on Netlify. There is one small server function (`netlify/functions/timetable.mjs`) that checks passwords and stores the timetable in Netlify's built-in storage (Netlify Blobs). There is no separate database, and nothing is connected to SharePoint, Microsoft 365 or Claude. Excel files are read inside the exams officer's browser and only the timetable itself is sent to Netlify.
