@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Invigilation Admin</title>
+  <title>Exam Invigilators Admin</title>
   <link rel="icon" type="image/png" href="assets/favicon.png">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <link rel="stylesheet" href="assets/style.css">
@@ -75,7 +75,7 @@
     <div class="inner">
       <img class="logo" src="assets/lwlat-logo-white.png" alt="Learning without Limits Academy Trust">
       <div class="titles">
-        <h1>Invigilation timetable: admin</h1>
+        <h1>Exam invigilators: admin</h1>
         <p>For the exams office. Invigilators use the <a href="./" style="color:#fff">main page</a>.</p>
       </div>
     </div>
@@ -324,7 +324,7 @@
     $("download-excel").addEventListener("click", async () => {
       tidy();
       const blob = await LWLAT_EXCEL.write(data);
-      const a = el("a", { href: URL.createObjectURL(blob), download: `${(data.title || "Invigilation timetable").replace(/[\\/:*?"<>|]+/g, "")}.xlsx` });
+      const a = el("a", { href: URL.createObjectURL(blob), download: `${(data.title || "Exam invigilators").replace(/[\\/:*?"<>|]+/g, "")}.xlsx` });
       document.body.append(a);
       a.click();
       a.remove();
@@ -503,7 +503,8 @@
             data.sessions = parsed.sessions;
             data.duties = parsed.duties;
             data.exams = { ...data.exams, ...parsed.exams };
-            if (!data.title) data.title = parsed.sheetName;
+            // An earlier version copied the sheet's tab name (e.g. "Summer 2026") in as the heading.
+            if (LWLAT.normalise(data.title) === LWLAT.normalise(parsed.sheetName)) data.title = "";
             changed();
             out.replaceChildren(el("div", { class: "success", text: "The spreadsheet has been loaded. Check the Timetable tab, then press Save and publish so invigilators can see it." }));
           } }),

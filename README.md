@@ -1,4 +1,4 @@
-# Invigilation timetable
+# Exam invigilators
 
 A small website where invigilators type their name and see where they are invigilating each week, with a PDF download. The exams office manages the timetable from an admin page by uploading the Excel spreadsheet and making changes in the browser.
 

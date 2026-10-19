@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Invigilation Timetable</title>
+  <title>Exam Invigilators</title>
   <link rel="icon" type="image/png" href="assets/favicon.png">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <link rel="stylesheet" href="assets/style.css">
@@ -40,7 +40,7 @@
     <div class="inner">
       <img class="logo" src="assets/lwlat-logo-white.png" alt="Learning without Limits Academy Trust">
       <div class="titles">
-        <h1>Invigilation timetable</h1>
+        <h1>Exam invigilators</h1>
         <p id="subtitle"></p>
       </div>
     </div>
@@ -151,7 +151,7 @@
 
     function prepare() {
       $("subtitle").textContent = data.title || "";
-      document.title = data.title ? `${data.title} | Invigilation Timetable` : "Invigilation Timetable";
+      document.title = data.title ? `${data.title} | Exam Invigilators` : "Exam Invigilators";
       $("notice").textContent = data.notice || "";
       $("notice").classList.toggle("hidden", !data.notice);
       const periodOrder = LWLAT.periodOrderOf(data);
@@ -294,7 +294,7 @@
         doc.setTextColor(255, 255, 255);
         doc.setFont("helvetica", "bold");
         doc.setFontSize(16);
-        doc.text("Invigilation timetable", pageWidth - 12, 13, { align: "right" });
+        doc.text("Exam invigilators", pageWidth - 12, 13, { align: "right" });
         doc.setFont("helvetica", "normal");
         doc.setFontSize(11);
         if (data.title) doc.text(data.title, pageWidth - 12, 21, { align: "right" });
@@ -356,7 +356,7 @@
 
       const safeName = person.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "");
       const suffix = weekList.length === 1 ? weekList[0] : "all-weeks";
-      doc.save(`Invigilation-timetable-${safeName}-${suffix}.pdf`);
+      doc.save(`Exam-invigilators-${safeName}-${suffix}.pdf`);
     }
 
     $("pdf-week").addEventListener("click", () => downloadPdf([weeks[weekIndex]]));

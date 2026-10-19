@@ -280,7 +280,7 @@ const LWLAT_EXCEL = (() => {
 
   async function write(data) {
     const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet(data.title ? data.title.slice(0, 31).replace(/[\\/?*[\]:]/g, "") : "Invigilation");
+    const ws = wb.addWorksheet(data.title ? data.title.slice(0, 31).replace(/[\\/?*[\]:]/g, "") : "Exam invigilators");
     const names = data.invigilators;
     const periodOrder = LWLAT.periodOrderOf(data);
     const sessions = LWLAT.sortSessions(data.sessions, periodOrder);
