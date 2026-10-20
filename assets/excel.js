@@ -294,6 +294,7 @@ const LWLAT_EXCEL = (() => {
     if (examSheet) {
       // Older copies of this sheet had a Finish column where Duration now is.
       const oldFinish = /finish|end/i.test(String(cellText(examSheet.getRow(1).getCell(6)) || ""));
+      const seen = new Set();
       examSheet.eachRow((row, r) => {
         if (r === 1) return;
         const dateVal = cellText(row.getCell(1));
@@ -311,7 +312,11 @@ const LWLAT_EXCEL = (() => {
         const sid = `${date}|${period}${slot > 1 ? `|${slot}` : ""}`;
         if (LWLAT.normalise(room) === LWLAT.normalise(ALL_ROOMS)) {
           if (details.exam) (sessionTimes[sid] ??= {}).exam = details.exam;
-        } else exams[LWLAT.examKey(sid, room)] = { ...details, sid, location: room };
+        } else {
+          const key = LWLAT.examKey(sid, room);
+          if (seen.has(key)) (exams[key].more ??= []).push({ id: LWLAT.newId(), ...details });
+          else { seen.add(key); exams[key] = { ...details, sid, location: room }; }
+        }
       });
     }
 
@@ -399,7 +404,10 @@ const LWLAT_EXCEL = (() => {
     for (const s of sessions) {
       const name = data.sessionTimes?.[LWLAT.idOf(s)]?.exam;
       if (name) lines.push({ session: s, label: labels.get(LWLAT.idOf(s)), location: ALL_ROOMS, details: { exam: name } });
-      lines.push(...examRows(data).filter((r) => r.sid === LWLAT.idOf(s)));
+      for (const r of examRows(data).filter((x) => x.sid === LWLAT.idOf(s))) {
+        lines.push(r);
+        for (const x of r.details.more ?? []) lines.push({ ...r, details: x });
+      }
     }
     for (const item of lines) {
       const d = LWLAT.parseISO(item.session.date);

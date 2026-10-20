@@ -87,6 +87,8 @@
     .chip-x { background: none; border: none; color: var(--grey); padding: 0 6px; font-size: 1.05rem; line-height: 1; }
     .chip-x:hover { background: var(--red-tint); color: var(--red); }
     select.add-inv { padding: 6px 8px; font-size: 0.9rem; max-width: 220px; }
+    tr.extra-row td { border-top: 1px dashed var(--grey-line); }
+    button.mini.add-exam { margin-top: 6px; white-space: nowrap; }
     button.add-row { padding: 6px 12px; font-size: 0.9rem; white-space: nowrap; }
     .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
     table.list input.t-start { min-width: 0; width: 84px; }
@@ -173,7 +175,7 @@
 
       <!-- Exam details -->
       <section id="tab-exams" class="tab hidden">
-        <p class="help">Each shaded row is a session (AM or PM). Its exam name, start time and duration apply to every room under it, shown in grey. Each room row can be edited: type the room or duty, add invigilators from the list (or remove them with ×), and type the exam, start time and duration if that room is different. Use <strong>+ Add row</strong> to add a room, the arrows to move a row up or down within the day (including between AM and PM), and <strong>✕</strong> to remove it. Durations can be typed as 1h 30m, 1:30 or 90 mins. Changes here also show on the Timetable tab.</p>
+        <p class="help">Each shaded row is a session (AM or PM). Its exam name, start time and duration apply to every room under it, shown in grey. Each room row can be edited: type the room or duty, add invigilators from the list (or remove them with ×), and type the exam, start time and duration if that room is different. Use <strong>+ Exam</strong> on a room to add another exam in that same room, <strong>+ Add row</strong> to add a room, the arrows to move a row up or down within the day (including between AM and PM), and <strong>✕</strong> to remove it. Durations can be typed as 1h 30m, 1:30 or 90 mins. Changes here also show on the Timetable tab.</p>
         <div class="row" style="margin-bottom:12px">
           <label for="exam-week" style="margin:0">Show</label>
           <select id="exam-week"></select>
@@ -387,7 +389,11 @@
         }
       }
       for (const [key, v] of Object.entries(data.exams)) {
-        const added = v.location && valid.has(v.sid);   // a room added on the Exam details tab
+        if (v.more) {
+          v.more = v.more.filter((x) => x.exam || x.start || x.duration != null);
+          if (!v.more.length) delete v.more;
+        }
+        const added = (v.location && valid.has(v.sid)) || v.more;   // a room added or given more exams on the Exam details tab
         if ((v.sid && !valid.has(v.sid)) || (!v.exam && !v.start && v.duration == null && !added)) delete data.exams[key];
       }
       for (const [sid, v] of Object.entries(data.sessionTimes)) {
@@ -746,7 +752,7 @@
         el("button", { type: "button", class: "mini" + (act === "remove" ? " remove" : ""), "data-act": act, text, title,
           "aria-label": `${title}: ${label()}`, onclick, disabled });
 
-      return el("tr", { "data-row": r.key },
+      const main = el("tr", { "data-row": r.key },
         el("td", {}), el("td", {}),
         el("td", {}, el("input", { type: "text", class: "room", value: r.location, list: "places", placeholder: "Room or duty",
           "aria-label": `Room or duty, ${where}`,
@@ -768,7 +774,51 @@
         el("td", {}, el("span", { class: "slot-tools" },
           mini("up", "↑", "Move up", () => moveRow(state, -1), !canUp),
           mini("down", "↓", "Move down", () => moveRow(state, 1), !canDown),
-          mini("remove", "✕", "Remove this row", () => removeRow(state, r.names, where)))));
+          mini("remove", "✕", "Remove this row", () => removeRow(state, r.names, where))),
+          el("button", { type: "button", class: "mini add-exam", "data-act": "add-exam", text: "+ Exam",
+            title: "Add another exam in this room", "aria-label": `Add another exam in ${label()}`, onclick: () => addExam(state) })));
+
+      // Further exams in the same room: their own exam name and times, the same invigilators.
+      const extras = (r.details.more ?? []).map((x) => {
+        const setExtra = (field, value) => {
+          const item = (entry().more ?? []).find((m) => m.id === x.id);
+          if (!item) return;
+          if (value === null || value === "") delete item[field]; else item[field] = value;
+        };
+        return el("tr", { class: "extra-row", "data-extra": x.id },
+          el("td", {}), el("td", {}),
+          el("td", { class: "muted" }, "↳ ", el("span", { text: state.location })),
+          el("td", { class: "small muted", text: "Same invigilators as above" }),
+          el("td", {}, el("input", { type: "text", class: "exam", value: x.exam ?? "", placeholder: slot.exam || "Exam name", "aria-label": `Further exam, ${label()}`,
+            "data-hint-for": r.sid, "data-field": "exam",
+            oninput: (e) => { setExtra("exam", e.target.value.trim()); changed(); } })),
+          el("td", {}, hinted(timeBox("start", x.start, slot.start || "", `Start time of further exam, ${label()}`, (v) => setExtra("start", v)), r.sid, "start")),
+          el("td", {}, hinted(timeBox("duration", x.duration, shortDuration(slot.duration), `Duration of further exam, ${label()}`, (v) => setExtra("duration", v)), r.sid, "duration")),
+          el("td", {}, el("button", { type: "button", class: "mini remove", text: "✕", title: "Remove this exam",
+            "aria-label": `Remove this further exam in ${label()}`, onclick: () => removeExam(state, x) })));
+      });
+      return [main, ...extras];
+    }
+
+    function addExam(state) {
+      if (!state.location) { alert("Please type the room or duty first."); return; }
+      const e = (data.exams[LWLAT.examKey(state.sid, state.location)] ??= {});
+      e.sid = state.sid; e.location = state.location;
+      const id = LWLAT.newId();
+      (e.more ??= []).push({ id });
+      changed();
+      renderExams();
+      document.querySelector(`#exam-body tr[data-extra="${CSS.escape(id)}"] input.exam`)?.focus();
+    }
+
+    function removeExam(state, x) {
+      const e = data.exams[LWLAT.examKey(state.sid, state.location)];
+      const item = e?.more?.find((m) => m.id === x.id);
+      if (item && (item.exam || item.start || item.duration != null) && !confirm(`Remove ${item.exam || "this exam"} from ${state.location}?`)) return;
+      e.more = e.more.filter((m) => m.id !== x.id);
+      if (!e.more.length) delete e.more;
+      changed();
+      renderExams();
     }
 
     function renderExams() {
@@ -808,7 +858,7 @@
           el("td", {}, timeBox("duration", slot.duration, "", `Duration, ${where}`, (v) => { setSessionTime(sid, "duration", v); refreshHints(sid); })),
           el("td", {}, el("button", { type: "button", class: "secondary add-row", text: "+ Add row", "aria-label": `Add a row to ${where}`, onclick: () => addRow(sid) }))));
         lastDate = s.date;
-        here.forEach((r, i) => out.push(roomRow(r, slot, where, !(firstOfDay && i === 0), !(lastOfDay && i === here.length - 1))));
+        here.forEach((r, i) => out.push(...roomRow(r, slot, where, !(firstOfDay && i === 0), !(lastOfDay && i === here.length - 1))));
       }
       $("exam-body").replaceChildren(...out);
     }

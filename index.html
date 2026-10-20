@@ -312,7 +312,7 @@
         if (busy.has(key) || shown.has(key)) return false;
         shown.add(key);
         return true;
-      });
+      }).flatMap((e) => [e, ...(e.extras ?? []).map((x) => ({ ...e, ...x, extraOf: e }))]);   // one line per exam in the room
     }
 
     function describe(entry) {
@@ -328,7 +328,7 @@
       $("next-week").disabled = weekIndex === weeks.length - 1;
 
       const entries = entriesInWeek(monday);
-      const duties = entries.filter((e) => e.status === "duty" || e.status === "clash").length;
+      const duties = entries.filter((e) => !e.extraOf && (e.status === "duty" || e.status === "clash")).length;
       $("week-summary").textContent = duties === 0
         ? "You have no invigilation duties this week."
         : `You have ${duties} invigilation ${duties === 1 ? "duty" : "duties"} this week.`;

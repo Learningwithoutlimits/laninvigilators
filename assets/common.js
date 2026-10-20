@@ -228,9 +228,18 @@ const LWLAT = (() => {
     entry.where = value;
     if (entry.status === "clash") return entry;
     const times = timesFor(data, sid, value);
-    entry.exam = data.exams?.[examKey(sid, value)]?.exam || data.sessionTimes?.[sid]?.exam || "";
+    const details = data.exams?.[examKey(sid, value)] ?? {};
+    const slot = data.sessionTimes?.[sid] ?? {};
+    entry.exam = details.exam || slot.exam || "";
     entry.start = times.start;
     entry.duration = formatDuration(times.duration);
+    // Further exams in the same room, each with its own name and times. Blank times fall
+    // back to the session's, as they do for the room's first exam.
+    entry.extras = (details.more ?? []).filter((x) => x.exam || x.start || x.duration != null).map((x) => ({
+      exam: x.exam || "",
+      start: x.start || slot.start || "",
+      duration: formatDuration(x.duration ?? slot.duration),
+    }));
     return entry;
   }
 
