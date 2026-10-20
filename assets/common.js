@@ -87,6 +87,24 @@ const LWLAT = (() => {
 
   function sessionId(date, period) { return `${date}|${period}`; }
 
+  // Each row of the timetable is one exam slot: a date, a session (AM or PM), and its own
+  // start time, duration and duties. A session can hold several rows. Rows saved before this
+  // existed have no id, and use "date|period", which their duties and exam details are keyed by.
+  function idOf(s) { return s.id || sessionId(s.date, s.period); }
+  function newId() { return "x" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+  // "AM", or "AM 2", "AM 3" for the second and third exam rows in the same session.
+  function slotLabels(data) {
+    const labels = new Map(), counts = {}, totals = {};
+    for (const s of data.sessions) totals[sessionId(s.date, s.period)] = (totals[sessionId(s.date, s.period)] ?? 0) + 1;
+    for (const s of sortSessions(data.sessions, periodOrderOf(data))) {
+      const key = sessionId(s.date, s.period);
+      counts[key] = (counts[key] ?? 0) + 1;
+      labels.set(idOf(s), totals[key] > 1 && counts[key] > 1 ? `${s.period} ${counts[key]}` : s.period);
+    }
+    return labels;
+  }
+
   function normalise(text) {
     return String(text ?? "").trim().replace(/\s+/g, " ").toLowerCase();
   }
@@ -168,6 +186,7 @@ const LWLAT = (() => {
   // Bring timetables saved by earlier versions (start and finish times) up to date.
   function upgrade(data) {
     data.sessionTimes ??= {};
+    for (const s of data.sessions ?? []) s.id ??= sessionId(s.date, s.period);
     for (const details of Object.values(data.exams ?? {})) {
       if (details.end !== undefined) {
         if (details.duration == null) details.duration = minutesBetween(details.start, details.end);
@@ -180,7 +199,7 @@ const LWLAT = (() => {
       if (!t.start) continue;
       for (const s of data.sessions ?? []) {
         if (s.period !== period) continue;
-        const st = (data.sessionTimes[sessionId(s.date, s.period)] ??= {});
+        const st = (data.sessionTimes[idOf(s)] ??= {});
         if (!st.start) st.start = t.start;
       }
     }
@@ -200,7 +219,7 @@ const LWLAT = (() => {
 
   // Everything one person needs to see for one session.
   function entryFor(data, session, name) {
-    const sid = sessionId(session.date, session.period);
+    const sid = idOf(session);
     const value = (data.duties?.[sid]?.[name] ?? "").trim();
     const entry = { session, value, status: "free", where: "", exam: "", start: "", duration: "" };
     if (!value) return entry;
@@ -261,7 +280,7 @@ const LWLAT = (() => {
     SCHOOLS, schoolById,
     api, remember, recall,
     parseISO, toISO, mondayOf, formatLong, formatShort, formatWeek, formatStamp,
-    sessionId, normalise, isUnavailable, isClash, examKey, sortSessions, periodOrderOf,
+    sessionId, idOf, newId, slotLabels, normalise, isUnavailable, isClash, examKey, sortSessions, periodOrderOf,
     entryFor, emptyData, el, imageAsDataUrl,
     parseTime, parseDuration, formatDuration, minutesBetween, upgrade, timesFor,
     DAY_NAMES, MONTH_NAMES,

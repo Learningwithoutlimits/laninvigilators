@@ -38,7 +38,7 @@ To change a password later, edit the environment variable and redeploy (step 5).
 
 1. Open `/admin.html` and sign in with the admin password.
 2. **Upload spreadsheet**: drop in the `.xlsx` file. If the file is `.xlsb`, open it in Excel and use *File, Save As, Excel Workbook (.xlsx)* first. Check the summary, then press **Use this spreadsheet**.
-3. **Timetable**: click any box and type to change it. Type `N/A` for not available. Leave it empty for no duty.
+3. **Timetable**: click any box and type to change it. Type `N/A` for not available. Leave it empty for no duty. Each row is one exam, with its own start time and duration. Use **+** to add another exam row to a session, the arrows to move a row within its day (between AM and PM too), and **✕** to remove one.
 4. **Exam details**: add the exam name for each room. Start times and durations come from the timetable, and can be changed for a single room here.
 5. **Names, dates and settings**: the heading, a notice for all invigilators, and adding, renaming or removing people and sessions.
 6. Press **Save and publish**. Nothing changes for invigilators until you do.
@@ -50,6 +50,7 @@ To change a password later, edit the environment variable and redeploy (step 5).
 - Each cell holds the room or duty, such as Hall, Gym, Ma 5 or Roving.
 - Optional columns headed **Start time** and **Duration** give each session's exam start time and its duration, not including extra time. They can sit anywhere in the row. Times can be Excel times or text such as 9:00. Durations can be Excel times such as 1:30, a number of minutes, or text such as 1h 30m or 90 mins. A bare number of 8 or less is read as hours.
 - If one room in a session has a different start time or duration, change it for that room on the Exam details tab.
+- A session can have more than one exam row. Each extra row can be labelled AM or PM again, or left unlabelled under the row above. Either way it is kept as a separate exam.
 - **Grey-shaded empty cells mean "not available"**, as do cells containing `N/A`.
 - Cells reading `CLASH` are shown to the invigilator as "Clash: please speak to the Exams Officer".
 - Dates without a year are given the year that matches the day name.

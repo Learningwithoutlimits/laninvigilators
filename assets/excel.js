@@ -206,10 +206,12 @@ const LWLAT_EXCEL = (() => {
     const sessions = [];
     const duties = {};
     const sessionTimes = {};
+    const slotCount = {};    // rows seen so far for each date and session
+    const extraRows = [];
     let badTimes = 0;
     let current = null;      // { date, period }
     let currentDate = null;
-    let mergedRows = 0, unavailableCount = 0, dutyCount = 0;
+    let unavailableCount = 0, dutyCount = 0;
 
     for (let r = headerRow + 1; r <= ws.rowCount; r++) {
       const row = ws.getRow(r);
@@ -217,7 +219,8 @@ const LWLAT_EXCEL = (() => {
       const dayRaw = dayCol ? cellText(row.getCell(dayCol)) : "";
       const periodRaw = cellText(row.getCell(periodCol));
       const values = uniqueCols.map((nc) => ({ nc, cell: row.getCell(nc.col), text: cellText(row.getCell(nc.col)) }));
-      const hasAnything = dateRaw || periodRaw || values.some((v) => v.text);
+      const hasTimes = (startCol && cellText(row.getCell(startCol))) || (durationCol && cellText(row.getCell(durationCol)));
+      const hasAnything = dateRaw || periodRaw || hasTimes || values.some((v) => v.text);
 
       if (!hasAnything) { current = null; currentDate = null; continue; }
 
@@ -228,42 +231,39 @@ const LWLAT_EXCEL = (() => {
       }
       if (!currentDate) continue;
 
+      // Every row is its own exam row. A row with no AM/PM label is an extra exam in the
+      // session above it, as long as it has something in it.
       let period = typeof periodRaw === "string" ? periodRaw.toUpperCase().replace(/\s+/g, "") : "";
       if (!period) {
-        if (current && current.date === currentDate) {
-          period = current.period;   // an unlabelled extra row belongs to the session above
-          if (values.some((v) => v.text)) mergedRows++;
-        } else continue;
+        if (!current || current.date !== currentDate) continue;
+        if (!hasTimes && !values.some((v) => v.text || isGreyFill(v.cell))) continue;
+        period = current.period;
       }
 
-      const sid = `${currentDate}|${period}`;
-      if (!duties[sid]) {
-        duties[sid] = {};
-        sessions.push({ date: currentDate, period });
-      }
+      const key = `${currentDate}|${period}`;
+      slotCount[key] = (slotCount[key] ?? 0) + 1;
+      const n = slotCount[key];
+      const sid = n === 1 ? key : `${key}|${n}`;
+      if (n === 2) extraRows.push(`${LWLAT.formatShort(currentDate)} ${period}`);
+      duties[sid] = {};
+      sessions.push({ id: sid, date: currentDate, period });
       current = { date: currentDate, period };
 
-      // The session's start time and duration. If a session spans two rows, the first value wins.
-      const times = (sessionTimes[sid] ??= {});
-      if (startCol && !times.start) {
+      const times = (sessionTimes[sid] = {});
+      if (startCol) {
         const raw = row.getCell(startCol);
         const start = LWLAT.parseTime(timeText(raw));
         if (start) times.start = start; else if (cellText(raw)) badTimes++;
       }
-      if (durationCol && times.duration == null) {
+      if (durationCol) {
         const raw = row.getCell(durationCol);
         const minutes = durationMinutes(raw);
         if (minutes) times.duration = minutes; else if (cellText(raw)) badTimes++;
       }
 
       for (const { nc, cell, text } of values) {
-        if (typeof text === "string" && text) {
-          const tidy = text.replace(/\s+/g, " ");
-          const existing = duties[sid][nc.name];
-          duties[sid][nc.name] = existing && existing !== tidy && !LWLAT.isUnavailable(existing) ? `${existing} / ${tidy}` : tidy;
-        } else if (!duties[sid][nc.name] && isGreyFill(cell)) {
-          duties[sid][nc.name] = "N/A";
-        }
+        if (typeof text === "string" && text) duties[sid][nc.name] = text.replace(/\s+/g, " ");
+        else if (isGreyFill(cell)) duties[sid][nc.name] = "N/A";
       }
     }
 
@@ -275,11 +275,12 @@ const LWLAT_EXCEL = (() => {
 
     for (const sid of Object.keys(sessionTimes)) if (!sessionTimes[sid].start && sessionTimes[sid].duration == null) delete sessionTimes[sid];
     if (badTimes) warnings.push(`${badTimes} start time or duration cell${badTimes === 1 ? " was" : "s were"} not understood and left blank. Times should look like 9:00 and durations like 1:30 or 90 mins.`);
-    if (mergedRows) warnings.push(`${mergedRows} unlabelled row${mergedRows === 1 ? " was" : "s were"} added to the session above it.`);
+    if (extraRows.length) warnings.push(`Sessions with more than one exam row: ${extraRows.join(", ")}. Each row is kept as a separate exam.`);
+    const labels = LWLAT.slotLabels({ sessions });
     const clashes = [];
     for (const s of sessions) {
-      for (const [name, v] of Object.entries(duties[`${s.date}|${s.period}`])) {
-        if (LWLAT.isClash(v)) clashes.push(`${name} (${LWLAT.formatShort(s.date)} ${s.period})`);
+      for (const [name, v] of Object.entries(duties[s.id])) {
+        if (LWLAT.isClash(v)) clashes.push(`${name} (${LWLAT.formatShort(s.date)} ${labels.get(s.id)})`);
       }
     }
     if (clashes.length) warnings.push(`Cells marked CLASH: ${clashes.join(", ")}. Invigilators will be asked to speak to the Exams Officer.`);
@@ -295,7 +296,7 @@ const LWLAT_EXCEL = (() => {
       examSheet.eachRow((row, r) => {
         if (r === 1) return;
         const dateVal = cellText(row.getCell(1));
-        const period = String(cellText(row.getCell(2)) || "").toUpperCase();
+        const [period, slot] = String(cellText(row.getCell(2)) || "").toUpperCase().trim().split(/\s+/);
         const room = String(cellText(row.getCell(3)) || "");
         const dm = parseDayMonth(dateVal);
         if (!dm || !period || !room) return;
@@ -306,7 +307,7 @@ const LWLAT_EXCEL = (() => {
           start,
           duration: oldFinish ? LWLAT.minutesBetween(start, timeText(row.getCell(6))) : durationMinutes(row.getCell(6)),
         };
-        if (details.exam || details.start || details.duration) exams[LWLAT.examKey(`${date}|${period}`, room)] = details;
+        if (details.exam || details.start || details.duration) exams[LWLAT.examKey(`${date}|${period}${slot > 1 ? `|${slot}` : ""}`, room)] = details;
       });
     }
 
@@ -365,13 +366,13 @@ const LWLAT_EXCEL = (() => {
       const d = LWLAT.parseISO(s.date);
       const first = s.date !== lastDate;
       lastDate = s.date;
-      const dutiesHere = data.duties[`${s.date}|${s.period}`] || {};
+      const dutiesHere = data.duties[LWLAT.idOf(s)] || {};
       const row = ws.addRow([
         first ? LWLAT.DAY_NAMES[d.getDay()].slice(0, 3) : "",
         first ? new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) : "",
         s.period,
-        data.sessionTimes?.[`${s.date}|${s.period}`]?.start || "",
-        LWLAT.formatDuration(data.sessionTimes?.[`${s.date}|${s.period}`]?.duration),
+        data.sessionTimes?.[LWLAT.idOf(s)]?.start || "",
+        LWLAT.formatDuration(data.sessionTimes?.[LWLAT.idOf(s)]?.duration),
         ...names.map((n) => (dutiesHere[n] && !LWLAT.isUnavailable(dutiesHere[n]) ? dutiesHere[n] : "")),
       ]);
       row.getCell(2).numFmt = "d mmm yyyy";
@@ -390,7 +391,7 @@ const LWLAT_EXCEL = (() => {
     [14, 9, 16, 34, 10, 20].forEach((w, i) => { ex.getColumn(i + 1).width = w; });
     for (const item of examRows(data)) {
       const d = LWLAT.parseISO(item.session.date);
-      const r = ex.addRow([new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())), item.session.period,
+      const r = ex.addRow([new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())), item.label,
         item.location, item.details.exam || "", item.details.start || "", LWLAT.formatDuration(item.details.duration)]);
       r.getCell(1).numFmt = "d mmm yyyy";
     }
@@ -402,9 +403,10 @@ const LWLAT_EXCEL = (() => {
   // Every room or duty in use in each session, with any exam details entered for it.
   function examRows(data) {
     const periodOrder = LWLAT.periodOrderOf(data);
+    const labels = LWLAT.slotLabels(data);
     const rows = [];
     for (const s of LWLAT.sortSessions(data.sessions, periodOrder)) {
-      const sid = `${s.date}|${s.period}`;
+      const sid = LWLAT.idOf(s);
       const byPlace = new Map();
       for (const name of data.invigilators) {
         const v = (data.duties[sid]?.[name] || "").trim();
@@ -415,7 +417,7 @@ const LWLAT_EXCEL = (() => {
       }
       for (const { location, names } of [...byPlace.values()].sort((a, b) => a.location.localeCompare(b.location, "en", { numeric: true }))) {
         const key = LWLAT.examKey(sid, location);
-        rows.push({ session: s, location, names, key, details: data.exams?.[key] || {} });
+        rows.push({ session: s, sid, label: labels.get(sid), location, names, key, details: data.exams?.[key] || {} });
       }
     }
     return rows;

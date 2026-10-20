@@ -299,6 +299,22 @@
       return data.sessions.filter((s) => LWLAT.mondayOf(s.date) === monday);
     }
 
+    // This person's rows for a week. Where a session has several exam rows, empty ones are
+    // left out if they have a duty in another row of that session, so each session shows
+    // "No duty" once at most.
+    function entriesInWeek(monday) {
+      const entries = sessionsInWeek(monday).map((s) => LWLAT.entryFor(data, s, person));
+      const busy = new Set(entries.filter((e) => e.status !== "free").map((e) => `${e.session.date}|${e.session.period}`));
+      const shown = new Set();
+      return entries.filter((e) => {
+        const key = `${e.session.date}|${e.session.period}`;
+        if (e.status !== "free") return true;
+        if (busy.has(key) || shown.has(key)) return false;
+        shown.add(key);
+        return true;
+      });
+    }
+
     function describe(entry) {
       if (entry.status === "unavailable") return { where: "Not available", exam: "", start: "", duration: "" };
       if (entry.status === "free") return { where: "No duty", exam: "", start: "", duration: "" };
@@ -311,7 +327,7 @@
       $("prev-week").disabled = weekIndex === 0;
       $("next-week").disabled = weekIndex === weeks.length - 1;
 
-      const entries = sessionsInWeek(monday).map((s) => LWLAT.entryFor(data, s, person));
+      const entries = entriesInWeek(monday);
       const duties = entries.filter((e) => e.status === "duty" || e.status === "clash").length;
       $("week-summary").textContent = duties === 0
         ? "You have no invigilation duties this week."
@@ -389,8 +405,8 @@
         doc.text(LWLAT.formatWeek(monday), 14, 52);
 
         let lastDate = null;
-        const rows = sessionsInWeek(monday).map((s) => {
-          const entry = LWLAT.entryFor(data, s, person);
+        const rows = entriesInWeek(monday).map((entry) => {
+          const s = entry.session;
           const d = describe(entry);
           const day = s.date !== lastDate ? LWLAT.formatLong(s.date) : "";
           lastDate = s.date;
@@ -405,7 +421,7 @@
           theme: "grid",
           styles: { font: "helvetica", fontSize: 10, cellPadding: 2.5, lineColor: [212, 213, 214], textColor: [31, 32, 33] },
           headStyles: { fillColor: tealDark, textColor: 255, fontStyle: "bold" },
-          columnStyles: { 0: { cellWidth: 42 }, 1: { cellWidth: 21 }, 2: { fontStyle: "bold" }, 4: { cellWidth: 19 }, 5: { cellWidth: 30 } },
+          columnStyles: { 0: { cellWidth: 38 }, 1: { cellWidth: 20 }, 2: { fontStyle: "bold" }, 4: { cellWidth: 18 }, 5: { cellWidth: 36 } },
           didParseCell: (hook) => {
             if (hook.section !== "body") return;
             const status = rows[hook.row.index].status;
