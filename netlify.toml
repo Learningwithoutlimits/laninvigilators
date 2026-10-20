@@ -1,20 +1,17 @@
 [build]
-  publish = "."
+  publish = "public"
+  functions = "netlify/functions"
 
-[functions]
-  directory = "netlify/functions"
-  node_bundler = "esbuild"
+# Keep the admin page out of search engines.
+[[headers]]
+  for = "/admin*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
 
-# Keep the timetable out of search engines and stop the pages being cached.
 [[headers]]
   for = "/*"
   [headers.values]
-    X-Robots-Tag = "noindex, nofollow"
-    X-Frame-Options = "DENY"
-    Referrer-Policy = "no-referrer"
+    # SAMEORIGIN, not DENY: Microsoft sign-in renews quietly in a hidden frame of this site.
+    X-Frame-Options = "SAMEORIGIN"
     X-Content-Type-Options = "nosniff"
-
-[[headers]]
-  for = "/*.html"
-  [headers.values]
-    Cache-Control = "no-cache"
+    Referrer-Policy = "same-origin"

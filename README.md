@@ -1,83 +1,115 @@
-# Exam invigilators
+# LWLAT catering bookings
 
-A small website where invigilators type their name and see where they are invigilating each week, with a PDF download. The exams office manages the timetable from an admin page by uploading the Excel spreadsheet and making changes in the browser.
+A booking form for staff to request hospitality or packed lunches, and an admin page where the Catering Team can see, confirm and manage the requests. The booking form is open to anyone with the link. The Catering Team signs in to the admin page with their LWLAT Microsoft account.
 
-- **Invigilators** use the main address, for example `https://your-site.netlify.app/`
-- **The exams office** uses `/admin.html`, for example `https://your-site.netlify.app/admin.html`
+- **Booking form:** `https://<your-site>.netlify.app/`
+- **Catering admin:** `https://<your-site>.netlify.app/admin`
 
-It follows the LwLAT Brand Guidelines (v1.0, October 2026): teal as the lead colour, Arial as the everyday font and the master logo artwork from the Marketing SharePoint.
+Everything runs on Netlify. Bookings are stored in Netlify's own storage (Netlify Blobs), so there is no separate database or account to look after.
 
-## Schools
+## What is in the folder
 
-The main page opens with three tiles: Lancaster Academy, Babington Academy and South Wigston High School. Each school has its own timetable. A school with no published timetable shows "Coming soon".
+| File | What it does |
+| --- | --- |
+| `public/index.html` | The booking form that staff fill in |
+| `public/admin.html` | The Catering Team's page, open only to people with the Catering admin role |
+| `public/styles.css` | Shared colours, type and layout (trust teal #009f9a) |
+| `public/auth.js` | Microsoft sign-in for the Catering Team |
+| `public/vendor/` | Microsoft's sign-in library (MSAL 4.30.0, MIT licence), kept here so the site does not depend on another server |
+| `netlify/functions/bookings.mjs` | The small piece of server code that saves and returns bookings |
+| `netlify/functions/config.mjs` | Tells the pages which Microsoft app to sign in with |
+| `netlify/lib/auth.mjs` | Checks each sign-in with Microsoft and whether the person has the Catering admin role |
+| `netlify/lib/notify.mjs` | Sends the email alerts |
+| `netlify.toml` | Tells Netlify where each part lives |
 
-The admin page uses one password for all three, with a tab for each school. Only Lancaster Academy can be uploaded to or changed at the moment. The other two show "Not set up yet", and the server refuses any change to them.
+## Putting it live on Netlify
 
-**To switch on another school later:** in `netlify/functions/timetable.mjs`, change `editable: false` to `editable: true` for that school, and in `admin.html` change the "Upload and edit" label line so it covers that school too. Then upload the files to GitHub as usual.
+1. Sign in to Netlify and choose **Add new site**, then **Import an existing project**.
+2. Pick GitHub and choose the `lwlat-hospitality` repository.
+3. Leave the build settings as Netlify suggests. It reads them from `netlify.toml`.
+4. Before the first deploy, open **Site configuration**, then **Environment variables**, and add the two IDs from IT's "LWLAT Catering Bookings" app registration:
 
-## How it works
+   | Key | Value |
+   | --- | --- |
+   | `ENTRA_TENANT_ID` | Directory (tenant) ID |
+   | `ENTRA_CLIENT_ID` | Application (client) ID |
 
-The site is plain HTML pages hosted on Netlify. There is one small server function (`netlify/functions/timetable.mjs`) that checks passwords and stores the timetable in Netlify's built-in storage (Netlify Blobs). There is no separate database, and nothing is connected to SharePoint, Microsoft 365 or Claude. Excel files are read inside the exams officer's browser and only the timetable itself is sent to Netlify.
+5. Deploy the site. Netlify will give it an address ending in `.netlify.app`.
+6. Check with IT that this exact address, with a `/` on the end, is the **Single-page application** redirect URI on the app registration. If you add your own domain later, IT must add that address too, or sign-in will fail with an error mentioning "redirect URI".
+7. Test it: send a booking from the form, then open `/admin`, sign in with a Catering Team account and check it appears.
 
-Each time the exams office saves, the previous version is kept. The last 30 versions can be restored from the admin page.
+## Who can do what
 
-## Setting it up on Netlify (one-off, about 15 minutes)
+| Person | Booking form | Catering Team page |
+| --- | --- | --- |
+| Anyone with the link | Books without signing in | No access |
+| LWLAT staff not in the Catering Team | Books without signing in | No access, even if they sign in |
+| Catering Team (Catering admin role) | Books, and uses **Add a booking** for phone and past orders | Full access after Microsoft sign-in |
 
-1. Sign in to [Netlify](https://app.netlify.com) (a free account is enough).
-2. Choose **Add new site**, then **Import an existing project**, then **GitHub**, and pick the `laninvigilators` repository.
-3. Leave the build settings as they are and press **Deploy**.
-4. In the site, go to **Site configuration**, then **Environment variables**, and add:
-   - `ADMIN_PASSWORD`: the password for the exams office. Make it long.
-   - `VIEWER_PASSWORD`: the password you give to invigilators. Leave this out if you want anyone with the link to see the timetable (not recommended).
-5. Go to **Deploys** and choose **Trigger deploy**, then **Deploy site**, so the passwords take effect.
-6. Optional: under **Domain management** you can rename the site (for example `lancaster-invigilation.netlify.app`) or add a school web address, which needs IT to add a DNS record.
+The Catering Team is the agreed list of people IT has given the **Catering admin** role on the "LWLAT Catering Bookings" app in Entra. To add or remove someone, ask IT to change that list. Nothing changes on the website.
 
-To change a password later, edit the environment variable and redeploy (step 5).
+Because only the Catering Team now signs in, IT can also switch on **Assignment required** for the app (Enterprise applications, then Properties). Microsoft will then refuse sign-in to anyone not on the list before they reach the site.
 
-## Using the admin page
+## Email alerts for catering managers
 
-1. Open `/admin.html` and sign in with the admin password.
-2. **Upload spreadsheet**: drop in the `.xlsx` file. If the file is `.xlsb`, open it in Excel and use *File, Save As, Excel Workbook (.xlsx)* first. Check the summary, then press **Use this spreadsheet**.
-3. **Timetable**: click any box and type to change it. Type `N/A` for not available. Leave it empty for no duty. Each row is one exam, with its own start time and duration. Use **+** to add another exam row to a session, the arrows to move a row within its day (between AM and PM too), and **✕** to remove one.
-4. **Exam details**: each shaded row is a session (AM or PM), with an exam name, start time and duration that apply to every room under it. Every room row can be edited: the room or duty, the invigilators (add from the list, remove with ×), the exam, start time and duration. **+ Exam** on a room adds another exam in that same room (same invigilators, its own exam name and times), **+ Add row** adds a room, the arrows move a row within the day (including between AM and PM), and **✕** removes it. Changes here also show on the Timetable tab.
-5. **Names, dates and settings**: the heading, a notice for all invigilators, and adding, renaming or removing people and sessions.
-6. Press **Save and publish**. Nothing changes for invigilators until you do.
-7. **Download as Excel** gives you the current timetable in the same layout, with an extra "Exam details" sheet. You can upload that file again later.
+When someone sends a booking, the catering manager for that site gets an email with the full order, any allergy details and a link to the bookings page. A trust contact can be copied on every booking. Replying to the alert goes to the person who made the booking. Bookings the Catering Team adds themselves do not send an alert.
 
-### What the upload understands
+The alerts are sent through the trust's Microsoft 365 from one mailbox. Until the settings below are in place, bookings still work but no alerts are sent.
 
-- A row of first names across the top, with columns of days, dates (such as "9th Nov") and sessions (AM or PM) down the left.
-- Each cell holds the room or duty, such as Hall, Gym, Ma 5 or Roving.
-- Optional columns headed **Start time** and **Duration** give each session's exam start time and its duration, not including extra time. They can sit anywhere in the row. Times can be Excel times or text such as 9:00. Durations can be Excel times such as 1:30, a number of minutes, or text such as 1h 30m or 90 mins. A bare number of 8 or less is read as hours.
-- If one room in a session has a different start time or duration, change it for that room on the Exam details tab.
-- A session can have more than one exam row. Each extra row can be labelled AM or PM again, or left unlabelled under the row above. Either way it is kept as a separate exam.
-- **Grey-shaded empty cells mean "not available"**, as do cells containing `N/A`.
-- Cells reading `CLASH` are shown to the invigilator as "Clash: please speak to the Exams Officer".
-- Dates without a year are given the year that matches the day name.
+**From IT** (see the request below), add these in Netlify under **Site configuration**, then **Environment variables**:
+
+| Key | Value |
+| --- | --- |
+| `GRAPH_TENANT_ID` | Directory (tenant) ID |
+| `GRAPH_CLIENT_ID` | Application (client) ID of the email app |
+| `GRAPH_CLIENT_SECRET` | The client secret value. Mark it as secret in Netlify. |
+| `NOTIFY_FROM` | Optional. The mailbox alerts come from. If left out, `catering-notifications@lwlat.org.uk` is used. |
+
+**Who gets told.** Add one key per site. Each can hold several addresses separated by commas.
+
+| Key | Who it is for |
+| --- | --- |
+| `NOTIFY_BABINGTON` | Babington catering manager |
+| `NOTIFY_HEATHERBROOK` | Heatherbrook catering manager |
+| `NOTIFY_LANCASTER` | Lancaster catering manager |
+| `NOTIFY_SOUTH_WIGSTON` | South Wigston catering manager |
+| `NOTIFY_WOODSTOCK` | Woodstock catering manager |
+| `NOTIFY_TRUST` | Copied on every booking, whichever site |
+
+To change who is told, edit these values in Netlify and redeploy. No code changes are needed.
+
+**What IT needs to set up:** an app registration with the Microsoft Graph application permission `Mail.Send`, with admin consent and a client secret. It should be limited to the sending mailbox only, using RBAC for Applications in Exchange Online or an application access policy. The secret expires, usually after 12 or 24 months, and must be renewed in Netlify before then.
+
+## Changing the menus or notice period
+
+Open `public/index.html` and look for the section headed **settings the Catering Team may want to change** near the bottom. You can edit:
+
+- `MIN_NOTICE_WORKING_DAYS`, the number of working days' notice needed
+- `HOSPITALITY_ITEMS`, the hospitality menu
+- `LUNCH_OPTIONS`, the packed lunch choices
+
+Keep each item inside quotation marks and followed by a comma. Old bookings keep the wording they were made with.
+
+## Adding the trust logo
+
+Save the logo as `public/lwlat-logo.svg` (or a PNG, and change the file name to match). Then remove the word `hidden` from the `<img>` line near the top of `index.html` and `admin.html`.
+
+## How the admin page works
+
+- **Needs a reply** shows new requests. The number on the tab is how many are waiting.
+- **Upcoming** shows bookings from today onwards, grouped by day, leaving out declined and cancelled ones.
+- Select a booking to see everything about it, change its status, add private notes for the team, or email the person who booked.
+- **Download spreadsheet** saves the bookings you are looking at as a CSV file that opens in Excel.
+- **Print list** prints the bookings you are looking at as a kitchen sheet.
+
+The site does not send emails by itself. The Catering Team confirms each booking by email using the **Email** button on the booking.
 
 ## Data protection
 
-The site holds staff first names and where they will be during exam sessions. It holds no learner data. Please confirm the arrangements with the Trust's Data Protection Officer before going live, and record what was approved:
+The form collects staff names, work email addresses and phone numbers, and dietary or allergy details given as quantities. The form asks people not to name individuals in the dietary box.
 
-| Item | Detail |
-| --- | --- |
-| Data held | Invigilator first names, rooms and duties, exam names and times |
-| Where it is stored | Netlify Blobs, as part of the Netlify site |
-| Who can see it | Anyone with the invigilator password (or anyone with the link, if no password is set) |
-| Who can change it | Anyone with the admin password |
-| Kept for | Until deleted. The last 30 saved versions are kept |
-| DPO approval | *Name, date and what was approved* |
-
-Spreadsheets are deliberately excluded from this repository (see `.gitignore`), so staff names are never stored in GitHub.
-
-## Files
-
-| File | What it is |
-| --- | --- |
-| `index.html` | The invigilator page: name search, weekly timetable, PDF download |
-| `admin.html` | The exams office page |
-| `assets/common.js` | Shared helpers (dates, data, talking to the server) |
-| `assets/excel.js` | Reads and writes the Excel spreadsheet |
-| `assets/style.css` | Brand colours and layout |
-| `assets/vendor/` | ExcelJS 4.4.0, jsPDF 2.5.2 and jsPDF-AutoTable 3.8.4, bundled so school web filters cannot block them |
-| `netlify/functions/timetable.mjs` | Password checks and storage |
+- Bookings stay in Netlify's storage until the Catering Team deletes them. Agree how long to keep them, for example to the end of the term after the event, and delete old bookings on that schedule.
+- The booking form is open, so anyone with the link can send a request. A hidden spam trap catches most automated junk, and the Catering Team can decline or delete anything that is not genuine.
+- Only people with the Catering admin role can see or change bookings, after signing in with Microsoft. The website receives their name and work email from Microsoft, and nothing else. Each booking records who last changed it, and who added it if the Catering Team entered it.
+- When someone leaves the Catering Team, ask IT to remove their Catering admin role.
+- If the form will ever be used to collect information about individual learners, such as named allergies for a trip, it needs sign-off from the trust's Data Protection Officer first.

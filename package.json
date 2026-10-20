@@ -1,12 +1,10 @@
 {
-  "name": "laninvigilators",
+  "name": "lwlat-hospitality",
   "private": true,
+  "description": "Hospitality and packed lunch booking form, with an admin page for the Catering Team.",
   "type": "module",
-  "description": "Invigilator timetable finder with an admin page for the exams officer.",
   "dependencies": {
-    "@netlify/blobs": "11.1.3"
-  },
-  "engines": {
-    "node": ">=22.12.0"
+    "@netlify/blobs": "^11.1.4",
+    "jose": "^6.2.13"
   }
 }
