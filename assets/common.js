@@ -228,7 +228,7 @@ const LWLAT = (() => {
     entry.where = value;
     if (entry.status === "clash") return entry;
     const times = timesFor(data, sid, value);
-    entry.exam = data.exams?.[examKey(sid, value)]?.exam ?? "";
+    entry.exam = data.exams?.[examKey(sid, value)]?.exam || data.sessionTimes?.[sid]?.exam || "";
     entry.start = times.start;
     entry.duration = formatDuration(times.duration);
     return entry;

@@ -81,7 +81,14 @@
     table.list input[type="time"] { padding: 8px; }
     table.list tr.slot-row td { background: var(--teal-tint); }
     table.list tr.day-start td { border-top: 3px solid var(--teal); }
-    table.list tr.slot-row .slot { min-width: 150px; }
+    table.list input.room { min-width: 0; width: 120px; }
+    td.invs { min-width: 220px; }
+    .chip { display: inline-flex; align-items: center; gap: 2px; margin: 0 4px 4px 0; padding: 2px 4px 2px 10px; border-radius: 999px; background: var(--teal-tint); border: 1px solid var(--teal-tint-2); font-size: 0.9rem; }
+    .chip-x { background: none; border: none; color: var(--grey); padding: 0 6px; font-size: 1.05rem; line-height: 1; }
+    .chip-x:hover { background: var(--red-tint); color: var(--red); }
+    select.add-inv { padding: 6px 8px; font-size: 0.9rem; max-width: 220px; }
+    button.add-row { padding: 6px 12px; font-size: 0.9rem; white-space: nowrap; }
+    .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
     table.list input.t-start { min-width: 0; width: 84px; }
     table.list input.t-dur { min-width: 0; width: 100px; }
 
@@ -166,14 +173,14 @@
 
       <!-- Exam details -->
       <section id="tab-exams" class="tab hidden">
-        <p class="help">Each shaded row is one exam, with its exam name, start time and duration (not including extra time). These apply to every room listed under it, shown in grey. Type in a room's own boxes only if that room is different. Use <strong>+</strong> to add another exam row below, the arrows to move it within its day (including between AM and PM), and <strong>✕</strong> to remove it. Durations can be typed as 1h 30m, 1:30 or 90 mins.</p>
+        <p class="help">Each shaded row is a session (AM or PM). Its exam name, start time and duration apply to every room under it, shown in grey. Each room row can be edited: type the room or duty, add invigilators from the list (or remove them with ×), and type the exam, start time and duration if that room is different. Use <strong>+ Add row</strong> to add a room, the arrows to move a row up or down within the day (including between AM and PM), and <strong>✕</strong> to remove it. Durations can be typed as 1h 30m, 1:30 or 90 mins. Changes here also show on the Timetable tab.</p>
         <div class="row" style="margin-bottom:12px">
           <label for="exam-week" style="margin:0">Show</label>
           <select id="exam-week"></select>
         </div>
         <div style="overflow:auto">
           <table class="list">
-            <thead><tr><th>Date</th><th>Session</th><th>Room or duty</th><th>Invigilators</th><th>Exam</th><th>Start time</th><th>Duration</th></tr></thead>
+            <thead><tr><th>Date</th><th>Session</th><th>Room or duty</th><th>Invigilators</th><th>Exam</th><th>Start time</th><th>Duration</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
             <tbody id="exam-body"></tbody>
           </table>
         </div>
@@ -380,7 +387,8 @@
         }
       }
       for (const [key, v] of Object.entries(data.exams)) {
-        if (!v.exam && !v.start && v.duration == null) delete data.exams[key];
+        const added = v.location && valid.has(v.sid);   // a room added on the Exam details tab
+        if ((v.sid && !valid.has(v.sid)) || (!v.exam && !v.start && v.duration == null && !added)) delete data.exams[key];
       }
       for (const [sid, v] of Object.entries(data.sessionTimes)) {
         if (!valid.has(sid) || (!v.start && v.duration == null && !v.exam)) delete data.sessionTimes[sid];
@@ -583,15 +591,194 @@
 
     const hinted = (input, sid, field) => { input.dataset.hintFor = sid; input.dataset.field = field; return input; };
 
-    // One heading row per exam row (its session, exam name, start time, duration and buttons),
-    // then a row for each room in use, which can have its own exam name and times.
+    // ---- Exam details: a shaded heading for each session, then one editable row per room ----
+
+    function fillPlaces() {
+      const places = new Set();
+      for (const sid of Object.keys(data.duties)) for (const v of Object.values(data.duties[sid])) {
+        if (v && !LWLAT.isUnavailable(v) && !LWLAT.isClash(v)) places.add(v.trim());
+      }
+      for (const d of Object.values(data.exams)) if (d.location) places.add(d.location);
+      $("places").replaceChildren(el("option", { value: "N/A" }), ...[...places].sort().map((p) => el("option", { value: p })));
+    }
+
+    const slotRows = (sid) => LWLAT_EXCEL.examRows(data).filter((r) => r.sid === sid);
+
+    // Gives every room row in a session a saved position, so rows can be moved.
+    function numberRows(sid) {
+      slotRows(sid).forEach((r, i) => {
+        const e = (data.exams[r.key] ??= {});
+        e.sid = sid; e.location = r.location; e.order = i;
+      });
+    }
+
+    const focusRow = (key, selector) =>
+      document.querySelector(`#exam-body tr[data-row="${CSS.escape(key)}"] ${selector}`)?.focus();
+
+    function addRow(sid) {
+      const blank = LWLAT.examKey(sid, "");
+      if (!data.exams[blank]) {
+        numberRows(sid);
+        data.exams[blank] = { sid, location: "", order: slotRows(sid).length };
+        changed();
+        renderExams();
+      }
+      focusRow(blank, "input.room");
+    }
+
+    // Renames a room for everyone in it during this session. Returns false if the name cannot be used.
+    function renameRow(state, typed) {
+      const name = typed.trim().replace(/\s+/g, " ");
+      const old = state.location;
+      if (name === old) return true;
+      if (!name) { alert("Please type a room or duty, for example Hall or Roving. To remove the row, use ✕."); return false; }
+      if (LWLAT.isUnavailable(name) || LWLAT.isClash(name)) { alert("N/A and CLASH are set for each invigilator on the Timetable tab, not as a room."); return false; }
+      const same = LWLAT.normalise(name) === LWLAT.normalise(old);
+      if (!same && slotRows(state.sid).some((r) => LWLAT.normalise(r.location) === LWLAT.normalise(name))) {
+        alert(`There is already a row for ${name} in this session.`); return false;
+      }
+      if (old) {
+        for (const [person, v] of Object.entries(data.duties[state.sid] ?? {})) {
+          if (LWLAT.normalise(v) === LWLAT.normalise(old)) data.duties[state.sid][person] = name;
+        }
+      }
+      const oldKey = LWLAT.examKey(state.sid, old), newKey = LWLAT.examKey(state.sid, name);
+      const entry = data.exams[oldKey] ?? {};
+      delete data.exams[oldKey];
+      data.exams[newKey] = { ...entry, sid: state.sid, location: name };
+      state.location = name;
+      changed();
+      return true;
+    }
+
+    // Moves a room row up or down. Past the top or bottom of a session it moves into the
+    // session before or after it on the same day, taking its invigilators with it.
+    function moveRow(state, dir) {
+      const day = sortedSessions().filter((x) => x.date === data.sessions.find((y) => LWLAT.idOf(y) === state.sid).date);
+      const rows = slotRows(state.sid);
+      const i = rows.findIndex((r) => LWLAT.normalise(r.location) === LWLAT.normalise(state.location));
+      const j = i + dir;
+      if (j >= 0 && j < rows.length) {
+        numberRows(state.sid);
+        const a = data.exams[rows[i].key], b = data.exams[rows[j].key];
+        [a.order, b.order] = [b.order, a.order];
+      } else {
+        const target = day[day.findIndex((x) => LWLAT.idOf(x) === state.sid) + dir];
+        if (!target) return;
+        const to = LWLAT.idOf(target);
+        const row = rows[i];
+        const busy = row.names.filter((n) => data.duties[to]?.[n] && LWLAT.normalise(data.duties[to][n]) !== LWLAT.normalise(row.location));
+        if (busy.length && !confirm(`${busy.join(", ")} already ${busy.length === 1 ? "has" : "have"} a duty in that session. Move them to ${row.location} anyway?`)) return;
+        for (const n of row.names) {
+          delete data.duties[state.sid][n];
+          (data.duties[to] ??= {})[n] = row.location;
+        }
+        const entry = data.exams[row.key] ?? {};
+        delete data.exams[row.key];
+        const toKey = LWLAT.examKey(to, row.location);
+        numberRows(to);
+        data.exams[toKey] = { ...entry, ...(data.exams[toKey] ?? {}), sid: to, location: row.location,
+          order: dir < 0 ? slotRows(to).length : -1 };
+        numberRows(to);
+        state.sid = to;
+      }
+      changed();
+      renderExams();
+      const key = LWLAT.examKey(state.sid, state.location);
+      const btn = document.querySelector(`#exam-body tr[data-row="${CSS.escape(key)}"] button[data-act="${dir < 0 ? "up" : "down"}"]`);
+      (btn && !btn.disabled ? btn : document.querySelector(`#exam-body tr[data-row="${CSS.escape(key)}"] input.room`))?.focus();
+    }
+
+    function removeRow(state, names, where) {
+      const what = state.location || "this blank row";
+      if (!confirm(`Remove ${what} from ${where}${names.length ? ` and take ${names.join(", ")} off this duty` : ""}?`)) return;
+      for (const n of names) delete data.duties[state.sid][n];
+      delete data.exams[LWLAT.examKey(state.sid, state.location)];
+      changed();
+      renderExams();
+    }
+
+    function addInvigilator(state, name) {
+      if (!state.location) { alert("Please type the room or duty first."); return; }
+      const current = data.duties[state.sid]?.[name];
+      if (current) {
+        const msg = LWLAT.isUnavailable(current) ? `${name} is marked as not available for this session. Add them anyway?`
+          : LWLAT.isClash(current) ? `${name} is marked CLASH for this session. Add them to ${state.location} anyway?`
+          : `${name} is already in ${current} at this time. Move them to ${state.location}?`;
+        if (!confirm(msg)) return;
+      }
+      (data.duties[state.sid] ??= {})[name] = state.location;
+      const e = (data.exams[LWLAT.examKey(state.sid, state.location)] ??= {});
+      e.sid = state.sid; e.location = state.location;
+      changed();
+      renderExams();
+      focusRow(LWLAT.examKey(state.sid, state.location), "select.add-inv");
+    }
+
+    function removeInvigilator(state, name) {
+      delete data.duties[state.sid][name];
+      changed();
+      renderExams();
+      focusRow(LWLAT.examKey(state.sid, state.location), "select.add-inv");
+    }
+
+    function roomRow(r, slot, where, canUp, canDown) {
+      const state = { sid: r.sid, location: r.location };
+      const entry = () => {
+        const e = (data.exams[LWLAT.examKey(state.sid, state.location)] ??= {});
+        e.sid = state.sid; e.location = state.location;
+        return e;
+      };
+      const setField = (field, value) => { const e = entry(); if (value === null || value === "") delete e[field]; else e[field] = value; };
+      const label = () => `${state.location || "new row"}, ${where}`;
+
+      const duties = data.duties[r.sid] ?? {};
+      const picker = el("select", { class: "add-inv", "aria-label": `Add an invigilator to ${label()}`,
+        onchange: (e) => { const n = e.target.value; e.target.value = ""; if (n) addInvigilator(state, n); } },
+        el("option", { value: "", text: "+ Add invigilator" }),
+        ...[...data.invigilators].sort((a, b) => a.localeCompare(b)).filter((n) => !r.names.includes(n)).map((n) => {
+          const v = duties[n];
+          const note = !v ? "" : LWLAT.isUnavailable(v) ? " (not available)" : LWLAT.isClash(v) ? " (CLASH)" : ` (in ${v})`;
+          return el("option", { value: n, text: n + note });
+        }));
+
+      const mini = (act, text, title, onclick, disabled = false) =>
+        el("button", { type: "button", class: "mini" + (act === "remove" ? " remove" : ""), "data-act": act, text, title,
+          "aria-label": `${title}: ${label()}`, onclick, disabled });
+
+      return el("tr", { "data-row": r.key },
+        el("td", {}), el("td", {}),
+        el("td", {}, el("input", { type: "text", class: "room", value: r.location, list: "places", placeholder: "Room or duty",
+          "aria-label": `Room or duty, ${where}`,
+          onchange: (e) => {
+            renameRow(state, e.target.value);
+            e.target.value = state.location;
+            e.target.closest("tr").dataset.row = LWLAT.examKey(state.sid, state.location);
+          } })),
+        el("td", { class: "invs" },
+          ...r.names.map((n) => el("span", { class: "chip" }, n,
+            el("button", { type: "button", class: "chip-x", text: "×", title: `Remove ${n}`, "aria-label": `Remove ${n} from ${label()}`,
+              onclick: () => removeInvigilator(state, n) }))),
+          picker),
+        el("td", {}, el("input", { type: "text", value: r.details.exam ?? "", placeholder: slot.exam || "Exam name", "aria-label": `Exam, ${label()}`,
+          "data-hint-for": r.sid, "data-field": "exam",
+          oninput: (e) => { setField("exam", e.target.value.trim()); changed(); } })),
+        el("td", {}, hinted(timeBox("start", r.details.start, slot.start || "", `Start time, ${label()}`, (v) => setField("start", v)), r.sid, "start")),
+        el("td", {}, hinted(timeBox("duration", r.details.duration, shortDuration(slot.duration), `Duration, ${label()}`, (v) => setField("duration", v)), r.sid, "duration")),
+        el("td", {}, el("span", { class: "slot-tools" },
+          mini("up", "↑", "Move up", () => moveRow(state, -1), !canUp),
+          mini("down", "↓", "Move down", () => moveRow(state, 1), !canDown),
+          mini("remove", "✕", "Remove this row", () => removeRow(state, r.names, where)))));
+    }
+
     function renderExams() {
       fillWeekSelect($("exam-week"));
+      fillPlaces();
       const week = $("exam-week").value;
       const all = sortedSessions();
       const slots = all.filter((s) => !week || LWLAT.mondayOf(s.date) === week);
       if (!slots.length) {
-        $("exam-body").replaceChildren(el("tr", {}, el("td", { colspan: 7, class: "muted", text: "There is no timetable yet. Use the Upload spreadsheet tab to add one." })));
+        $("exam-body").replaceChildren(el("tr", {}, el("td", { colspan: 8, class: "muted", text: "There is no timetable yet. Use the Upload spreadsheet tab to add one." })));
         return;
       }
       const labels = LWLAT.slotLabels(data);
@@ -608,30 +795,20 @@
         const where = `${LWLAT.formatLong(s.date)} ${label}`;
         const slot = data.sessionTimes[sid] ?? {};
         const here = rooms.get(sid) ?? [];
+        const day = all.filter((x) => x.date === s.date);
+        const firstOfDay = day[0] === s, lastOfDay = day[day.length - 1] === s;
         out.push(el("tr", { class: "slot-row" + (s.date !== lastDate ? " day-start" : "") },
           el("td", { text: s.date !== lastDate ? LWLAT.formatShort(s.date) : "" }),
-          el("td", { "data-slot": sid }, el("div", { class: "slot" },
-            el("strong", { class: "slot-label", text: label }), slotTools(s, all, all.indexOf(s), where))),
+          el("td", {}, el("strong", { text: label })),
           el("td", {}, el("em", { text: "All rooms" })),
-          el("td", { class: "small muted", text: here.length ? `${here.reduce((n, r) => n + r.names.length, 0)} invigilators` : "No invigilators yet. Add them on the Timetable tab." }),
+          el("td", { class: "small muted", text: here.length ? `${here.reduce((n, r) => n + r.names.length, 0)} invigilators` : "No rooms yet" }),
           el("td", {}, el("input", { type: "text", class: "slot-exam", value: slot.exam ?? "", placeholder: "Exam name", "aria-label": `Exam, ${where}`,
             oninput: (e) => { setSessionTime(sid, "exam", e.target.value.trim() || null); refreshHints(sid); changed(); } })),
           el("td", {}, timeBox("start", slot.start, "", `Start time, ${where}`, (v) => { setSessionTime(sid, "start", v); refreshHints(sid); })),
-          el("td", {}, timeBox("duration", slot.duration, "", `Duration, ${where}`, (v) => { setSessionTime(sid, "duration", v); refreshHints(sid); }))));
+          el("td", {}, timeBox("duration", slot.duration, "", `Duration, ${where}`, (v) => { setSessionTime(sid, "duration", v); refreshHints(sid); })),
+          el("td", {}, el("button", { type: "button", class: "secondary add-row", text: "+ Add row", "aria-label": `Add a row to ${where}`, onclick: () => addRow(sid) }))));
         lastDate = s.date;
-        for (const r of here) {
-          out.push(el("tr", {},
-            el("td", {}), el("td", {}),
-            el("td", {}, el("strong", { text: r.location })),
-            el("td", { class: "small muted", text: r.names.join(", ") }),
-            el("td", {}, el("input", { type: "text", value: r.details.exam ?? "", placeholder: slot.exam || "Exam name", "aria-label": `Exam in ${r.location}, ${where}`,
-              "data-hint-for": sid, "data-field": "exam",
-              oninput: (e) => { setExamField(r.key, "exam", e.target.value); changed(); } })),
-            el("td", {}, hinted(timeBox("start", r.details.start, slot.start || "", `Start time in ${r.location}, ${where}`,
-              (v) => setExamField(r.key, "start", v)), sid, "start")),
-            el("td", {}, hinted(timeBox("duration", r.details.duration, shortDuration(slot.duration), `Duration in ${r.location}, ${where}`,
-              (v) => setExamField(r.key, "duration", v)), sid, "duration"))));
-        }
+        here.forEach((r, i) => out.push(roomRow(r, slot, where, !(firstOfDay && i === 0), !(lastOfDay && i === here.length - 1))));
       }
       $("exam-body").replaceChildren(...out);
     }
@@ -757,6 +934,7 @@
       const count = Object.values(data.duties[sid] ?? {}).filter((v) => String(v).trim()).length;
       if (!confirm(`Remove ${LWLAT.formatLong(s.date)} ${label}${count ? ` and its ${count} duties` : ""}?`)) return;
       for (const v of Object.values(data.duties[sid] ?? {})) delete data.exams[LWLAT.examKey(sid, v)];
+      for (const [key, d] of Object.entries(data.exams)) if (d.sid === sid) delete data.exams[key];
       data.sessions = data.sessions.filter((x) => x !== s);
       delete data.duties[sid];
       delete data.sessionTimes[sid];

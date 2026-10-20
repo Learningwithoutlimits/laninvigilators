@@ -14,6 +14,7 @@ const LWLAT_EXCEL = (() => {
   const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
   const DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
   const EXAM_SHEET = "Exam details";
+  const ALL_ROOMS = "All rooms";
 
   function cellText(cell) {
     if (!cell) return "";
@@ -307,7 +308,10 @@ const LWLAT_EXCEL = (() => {
           start,
           duration: oldFinish ? LWLAT.minutesBetween(start, timeText(row.getCell(6))) : durationMinutes(row.getCell(6)),
         };
-        if (details.exam || details.start || details.duration) exams[LWLAT.examKey(`${date}|${period}${slot > 1 ? `|${slot}` : ""}`, room)] = details;
+        const sid = `${date}|${period}${slot > 1 ? `|${slot}` : ""}`;
+        if (LWLAT.normalise(room) === LWLAT.normalise(ALL_ROOMS)) {
+          if (details.exam) (sessionTimes[sid] ??= {}).exam = details.exam;
+        } else exams[LWLAT.examKey(sid, room)] = { ...details, sid, location: room };
       });
     }
 
@@ -389,7 +393,15 @@ const LWLAT_EXCEL = (() => {
     exHead.font = { bold: true, color: { argb: "FFFFFFFF" } };
     exHead.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: teal } }; });
     [14, 9, 16, 34, 10, 20].forEach((w, i) => { ex.getColumn(i + 1).width = w; });
-    for (const item of examRows(data)) {
+    // An exam name typed for a whole exam row is written as "All rooms".
+    const labels = LWLAT.slotLabels(data);
+    const lines = [];
+    for (const s of sessions) {
+      const name = data.sessionTimes?.[LWLAT.idOf(s)]?.exam;
+      if (name) lines.push({ session: s, label: labels.get(LWLAT.idOf(s)), location: ALL_ROOMS, details: { exam: name } });
+      lines.push(...examRows(data).filter((r) => r.sid === LWLAT.idOf(s)));
+    }
+    for (const item of lines) {
       const d = LWLAT.parseISO(item.session.date);
       const r = ex.addRow([new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())), item.label,
         item.location, item.details.exam || "", item.details.start || "", LWLAT.formatDuration(item.details.duration)]);
@@ -400,7 +412,9 @@ const LWLAT_EXCEL = (() => {
     return new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   }
 
-  // Every room or duty in use in each session, with any exam details entered for it.
+  // Every room or duty in each exam row: those with invigilators in the timetable, plus rooms
+  // added on the Exam details tab (saved with their own sid and location). Rows keep the order
+  // set on that tab, then go alphabetically.
   function examRows(data) {
     const periodOrder = LWLAT.periodOrderOf(data);
     const labels = LWLAT.slotLabels(data);
@@ -415,10 +429,20 @@ const LWLAT_EXCEL = (() => {
         if (!byPlace.has(key)) byPlace.set(key, { location: v, names: [] });
         byPlace.get(key).names.push(name);
       }
-      for (const { location, names } of [...byPlace.values()].sort((a, b) => a.location.localeCompare(b.location, "en", { numeric: true }))) {
-        const key = LWLAT.examKey(sid, location);
-        rows.push({ session: s, sid, label: labels.get(sid), location, names, key, details: data.exams?.[key] || {} });
+      for (const d of Object.values(data.exams ?? {})) {
+        if (d.sid !== sid || typeof d.location !== "string") continue;
+        const key = LWLAT.normalise(d.location);
+        if (!byPlace.has(key)) byPlace.set(key, { location: d.location, names: [] });
       }
+      const here = [...byPlace.values()].map(({ location, names }) => {
+        const key = LWLAT.examKey(sid, location);
+        const details = data.exams?.[key] || {};
+        return { session: s, sid, label: labels.get(sid), location, names, key, details };
+      });
+      here.sort((a, b) => (a.details.order ?? Infinity) - (b.details.order ?? Infinity) ||
+        (a.location === "") - (b.location === "") ||
+        a.location.localeCompare(b.location, "en", { numeric: true }));
+      rows.push(...here);
     }
     return rows;
   }

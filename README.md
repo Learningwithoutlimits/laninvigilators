@@ -39,7 +39,7 @@ To change a password later, edit the environment variable and redeploy (step 5).
 1. Open `/admin.html` and sign in with the admin password.
 2. **Upload spreadsheet**: drop in the `.xlsx` file. If the file is `.xlsb`, open it in Excel and use *File, Save As, Excel Workbook (.xlsx)* first. Check the summary, then press **Use this spreadsheet**.
 3. **Timetable**: click any box and type to change it. Type `N/A` for not available. Leave it empty for no duty. Each row is one exam, with its own start time and duration. Use **+** to add another exam row to a session, the arrows to move a row within its day (between AM and PM too), and **✕** to remove one.
-4. **Exam details**: each shaded row is one exam, with its name, start time and duration, which apply to every room under it. Rooms can have their own name or times. The **+ ↑ ↓ ✕** buttons add, move and remove exam rows here too.
+4. **Exam details**: each shaded row is a session (AM or PM), with an exam name, start time and duration that apply to every room under it. Every room row can be edited: the room or duty, the invigilators (add from the list, remove with ×), the exam, start time and duration. **+ Add row** adds a room, the arrows move a row within the day (including between AM and PM), and **✕** removes it. Changes here also show on the Timetable tab.
 5. **Names, dates and settings**: the heading, a notice for all invigilators, and adding, renaming or removing people and sessions.
 6. Press **Save and publish**. Nothing changes for invigilators until you do.
 7. **Download as Excel** gives you the current timetable in the same layout, with an extra "Exam details" sheet. You can upload that file again later.
