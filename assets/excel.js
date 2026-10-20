@@ -6,6 +6,8 @@
 //     and a column of sessions (AM / PM). Day and date cells are often merged.
 //   - Each cell under a name holds where that person is (Hall, Gym, Ma 5, Roving...).
 //   - Grey-shaded empty cells mean the person is not available.
+//   - Optional columns headed "Start time" and "Duration" give each session's exam start
+//     time and its duration, not including extra time. They can sit anywhere in the row.
 // An optional sheet called "Exam details" holds exam names and times per room and session.
 
 const LWLAT_EXCEL = (() => {
@@ -65,9 +67,40 @@ const LWLAT_EXCEL = (() => {
     if (m) {
       let year = m[3] ? +m[3] : null;
       if (year !== null && year < 100) year += 2000;
+      if (+m[1] < 1 || +m[1] > 31 || +m[2] < 1 || +m[2] > 12) return null;
       return { day: +m[1], month: +m[2] - 1, year };
     }
     return null;
+  }
+
+  const START_HEADER = /^(exam\s*)?start(\s*time)?$/i;
+  const DURATION_HEADER = /duration|length/i;
+
+  // Columns headed "Start time" and "Duration", looked for in the rows above the first session.
+  function findTimeColumns(ws, firstDataRow) {
+    let startCol = null, durationCol = null;
+    for (let r = 1; r < firstDataRow; r++) {
+      ws.getRow(r).eachCell((cell, c) => {
+        const t = cellText(cell);
+        if (typeof t !== "string") return;
+        if (!startCol && START_HEADER.test(t)) startCol = c;
+        else if (!durationCol && DURATION_HEADER.test(t)) durationCol = c;
+      });
+    }
+    return { startCol, durationCol };
+  }
+
+  // A duration cell: an Excel time such as 1:30, a number, or text such as "1h 30m" or "90 mins".
+  function durationMinutes(cell) {
+    let v = cell?.value;
+    if (v && typeof v === "object" && "result" in v) v = v.result;
+    if (v === null || v === undefined || v === "") return null;
+    if (v instanceof Date) {
+      const mins = v.getUTCHours() * 60 + v.getUTCMinutes();
+      return mins > 0 ? mins : null;
+    }
+    if (typeof v === "number") return v < 1 ? Math.round(v * 24 * 60) || null : LWLAT.parseDuration(v);
+    return LWLAT.parseDuration(cellText(cell));
   }
 
   // Dates like "9th Nov" have no year. Pick the year that matches the day name
@@ -103,8 +136,9 @@ const LWLAT_EXCEL = (() => {
     return best?.col ?? null;
   }
 
-  function findDateColumn(ws, periodCol) {
+  function findDateColumn(ws, periodCol, skip) {
     for (let c = periodCol - 1; c >= 1; c--) {
+      if (skip.includes(c)) continue;
       for (let r = 1; r <= ws.rowCount; r++) {
         if (parseDayMonth(cellText(ws.getRow(r).getCell(c)))) return c;
       }
@@ -138,22 +172,25 @@ const LWLAT_EXCEL = (() => {
     }
     if (sheets.length > 1) warnings.push(`This file has more than one sheet. I used the sheet called "${ws.name}".`);
 
-    const dateCol = findDateColumn(ws, periodCol);
-    const dayCol = findDayColumn(ws, periodCol);
-    if (!dateCol) throw new Error("I could not find a column of dates to the left of the AM and PM column.");
-
     // Header row: the first row above the first AM/PM row with names to the right.
     let firstDataRow = null;
     for (let r = 1; r <= ws.rowCount && !firstDataRow; r++) {
       const t = cellText(ws.getRow(r).getCell(periodCol));
       if (typeof t === "string" && /^(am|pm)$/i.test(t)) firstDataRow = r;
     }
+
+    const { startCol, durationCol } = findTimeColumns(ws, firstDataRow);
+    const dateCol = findDateColumn(ws, periodCol, [startCol, durationCol]);
+    const dayCol = findDayColumn(ws, periodCol);
+    if (!dateCol) throw new Error("I could not find a column of dates to the left of the AM and PM column.");
     let headerRow = null, nameCols = [];
     for (let r = firstDataRow - 1; r >= 1 && !headerRow; r--) {
       const cols = [];
       ws.getRow(r).eachCell((cell, c) => {
         const t = cellText(cell);
-        if (c > periodCol && typeof t === "string" && t) cols.push({ col: c, name: t.replace(/\s+/g, " ") });
+        if (c > periodCol && c !== startCol && c !== durationCol && typeof t === "string" && t) {
+          cols.push({ col: c, name: t.replace(/\s+/g, " ") });
+        }
       });
       if (cols.length) { headerRow = r; nameCols = cols; }
     }
@@ -168,6 +205,8 @@ const LWLAT_EXCEL = (() => {
 
     const sessions = [];
     const duties = {};
+    const sessionTimes = {};
+    let badTimes = 0;
     let current = null;      // { date, period }
     let currentDate = null;
     let mergedRows = 0, unavailableCount = 0, dutyCount = 0;
@@ -204,6 +243,19 @@ const LWLAT_EXCEL = (() => {
       }
       current = { date: currentDate, period };
 
+      // The session's start time and duration. If a session spans two rows, the first value wins.
+      const times = (sessionTimes[sid] ??= {});
+      if (startCol && !times.start) {
+        const raw = row.getCell(startCol);
+        const start = LWLAT.parseTime(timeText(raw));
+        if (start) times.start = start; else if (cellText(raw)) badTimes++;
+      }
+      if (durationCol && times.duration == null) {
+        const raw = row.getCell(durationCol);
+        const minutes = durationMinutes(raw);
+        if (minutes) times.duration = minutes; else if (cellText(raw)) badTimes++;
+      }
+
       for (const { nc, cell, text } of values) {
         if (typeof text === "string" && text) {
           const tidy = text.replace(/\s+/g, " ");
@@ -221,6 +273,8 @@ const LWLAT_EXCEL = (() => {
       }
     }
 
+    for (const sid of Object.keys(sessionTimes)) if (!sessionTimes[sid].start && sessionTimes[sid].duration == null) delete sessionTimes[sid];
+    if (badTimes) warnings.push(`${badTimes} start time or duration cell${badTimes === 1 ? " was" : "s were"} not understood and left blank. Times should look like 9:00 and durations like 1:30 or 90 mins.`);
     if (mergedRows) warnings.push(`${mergedRows} unlabelled row${mergedRows === 1 ? " was" : "s were"} added to the session above it.`);
     const clashes = [];
     for (const s of sessions) {
@@ -236,6 +290,8 @@ const LWLAT_EXCEL = (() => {
     const exams = {};
     const examSheet = wb.getWorksheet(EXAM_SHEET);
     if (examSheet) {
+      // Older copies of this sheet had a Finish column where Duration now is.
+      const oldFinish = /finish|end/i.test(String(cellText(examSheet.getRow(1).getCell(6)) || ""));
       examSheet.eachRow((row, r) => {
         if (r === 1) return;
         const dateVal = cellText(row.getCell(1));
@@ -244,12 +300,13 @@ const LWLAT_EXCEL = (() => {
         const dm = parseDayMonth(dateVal);
         if (!dm || !period || !room) return;
         const date = iso(chooseYear(dm, ""), dm.month, dm.day);
+        const start = LWLAT.parseTime(timeText(row.getCell(5))) || "";
         const details = {
           exam: String(cellText(row.getCell(4)) || ""),
-          start: timeText(row.getCell(5)),
-          end: timeText(row.getCell(6)),
+          start,
+          duration: oldFinish ? LWLAT.minutesBetween(start, timeText(row.getCell(6))) : durationMinutes(row.getCell(6)),
         };
-        if (details.exam || details.start || details.end) exams[LWLAT.examKey(`${date}|${period}`, room)] = details;
+        if (details.exam || details.start || details.duration) exams[LWLAT.examKey(`${date}|${period}`, room)] = details;
       });
     }
 
@@ -258,9 +315,11 @@ const LWLAT_EXCEL = (() => {
       invigilators: uniqueCols.map((nc) => nc.name),
       sessions,
       duties,
+      sessionTimes,
+      hasTimeColumns: Boolean(startCol || durationCol),
       exams,
       warnings,
-      stats: { dutyCount, unavailableCount },
+      stats: { dutyCount, unavailableCount, timedSessions: Object.keys(sessionTimes).length },
     };
   }
 
@@ -286,14 +345,17 @@ const LWLAT_EXCEL = (() => {
     const sessions = LWLAT.sortSessions(data.sessions, periodOrder);
     const teal = "FF009189", grey = "FF595959", red = "FFCE153F";
 
-    const header = ws.addRow(["Day", "Date", "Session", ...names]);
+    const FIRST = 6; // column of the first invigilator
+    const header = ws.addRow(["Day", "Date", "Session", "Start time", "Duration", ...names]);
     header.font = { bold: true, color: { argb: "FFFFFFFF" } };
     header.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: teal } }; });
-    ws.views = [{ state: "frozen", xSplit: 3, ySplit: 1 }];
+    ws.views = [{ state: "frozen", xSplit: FIRST - 1, ySplit: 1 }];
     ws.getColumn(1).width = 6;
     ws.getColumn(2).width = 11;
     ws.getColumn(3).width = 9;
-    names.forEach((_, i) => { ws.getColumn(4 + i).width = 12; });
+    ws.getColumn(4).width = 10;
+    ws.getColumn(5).width = 20;
+    names.forEach((_, i) => { ws.getColumn(FIRST + i).width = 12; });
 
     let lastMonday = null, lastDate = null;
     for (const s of sessions) {
@@ -308,26 +370,28 @@ const LWLAT_EXCEL = (() => {
         first ? LWLAT.DAY_NAMES[d.getDay()].slice(0, 3) : "",
         first ? new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) : "",
         s.period,
+        data.sessionTimes?.[`${s.date}|${s.period}`]?.start || "",
+        LWLAT.formatDuration(data.sessionTimes?.[`${s.date}|${s.period}`]?.duration),
         ...names.map((n) => (dutiesHere[n] && !LWLAT.isUnavailable(dutiesHere[n]) ? dutiesHere[n] : "")),
       ]);
       row.getCell(2).numFmt = "d mmm yyyy";
       names.forEach((n, i) => {
         const v = dutiesHere[n];
-        const cell = row.getCell(4 + i);
+        const cell = row.getCell(FIRST + i);
         if (v && LWLAT.isUnavailable(v)) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: grey } };
         else if (v && LWLAT.isClash(v)) { cell.font = { bold: true, color: { argb: "FFFFFFFF" } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: red } }; }
       });
     }
 
     const ex = wb.addWorksheet(EXAM_SHEET);
-    const exHead = ex.addRow(["Date", "Session", "Room / duty", "Exam", "Start", "Finish"]);
+    const exHead = ex.addRow(["Date", "Session", "Room / duty", "Exam", "Start time", "Duration"]);
     exHead.font = { bold: true, color: { argb: "FFFFFFFF" } };
     exHead.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: teal } }; });
-    [14, 9, 16, 34, 9, 9].forEach((w, i) => { ex.getColumn(i + 1).width = w; });
+    [14, 9, 16, 34, 10, 20].forEach((w, i) => { ex.getColumn(i + 1).width = w; });
     for (const item of examRows(data)) {
       const d = LWLAT.parseISO(item.session.date);
       const r = ex.addRow([new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())), item.session.period,
-        item.location, item.details.exam || "", item.details.start || "", item.details.end || ""]);
+        item.location, item.details.exam || "", item.details.start || "", LWLAT.formatDuration(item.details.duration)]);
       r.getCell(1).numFmt = "d mmm yyyy";
     }
 

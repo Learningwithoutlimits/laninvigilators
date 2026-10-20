@@ -115,21 +115,103 @@ const LWLAT = (() => {
     return [...known.filter((p) => seen.includes(p)), ...seen.filter((p) => !known.includes(p))];
   }
 
+  // ---- Start times and durations ----
+
+  // "9:00", "09.00", "9:00 am" or "2pm" -> "09:00" / "14:00". Anything else -> null.
+  function parseTime(text) {
+    const t = normalise(text).replace(/\s+/g, "");
+    const m = t.match(/^(\d{1,2})(?:[:.](\d{2}))?(am|pm)?$/);
+    if (!m || (!m[2] && !m[3])) return null;
+    let h = Number(m[1]);
+    const min = Number(m[2] ?? 0);
+    if (m[3] === "pm" && h < 12) h += 12;
+    if (m[3] === "am" && h === 12) h = 0;
+    if (h > 23 || min > 59) return null;
+    return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+  }
+
+  // A duration in minutes, from "1h 30m", "1 hour 30 minutes", "90 mins", "1:30", "90" or "1.5".
+  // A bare number of 8 or less is taken as hours, anything larger as minutes.
+  function parseDuration(value) {
+    if (typeof value === "number") {
+      if (!(value > 0)) return null;
+      return Math.round(value <= 8 ? value * 60 : value);
+    }
+    const t = normalise(value);
+    if (!t) return null;
+    let m = t.match(/^(\d{1,2})[:.](\d{2})$/);
+    if (m) return Number(m[1]) * 60 + Number(m[2]) || null;
+    if (/^\d+(\.\d+)?$/.test(t)) return parseDuration(Number(t));
+    const hours = t.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b/);
+    const mins = t.match(/(\d+)\s*(?:m|min|mins|minute|minutes)\b/);
+    if (!hours && !mins) return null;
+    const total = Math.round((hours ? Number(hours[1]) * 60 : 0) + (mins ? Number(mins[1]) : 0));
+    return total > 0 ? total : null;
+  }
+
+  function formatDuration(minutes) {
+    if (!(minutes > 0)) return "";
+    const h = Math.floor(minutes / 60), m = minutes % 60;
+    const parts = [];
+    if (h) parts.push(`${h} ${h === 1 ? "hour" : "hours"}`);
+    if (m) parts.push(`${m} ${m === 1 ? "minute" : "minutes"}`);
+    return parts.join(" ");
+  }
+
+  function minutesBetween(start, end) {
+    const a = parseTime(start), b = parseTime(end);
+    if (!a || !b) return null;
+    const diff = (Number(b.slice(0, 2)) * 60 + Number(b.slice(3))) - (Number(a.slice(0, 2)) * 60 + Number(a.slice(3)));
+    return diff > 0 ? diff : null;
+  }
+
+  // Bring timetables saved by earlier versions (start and finish times) up to date.
+  function upgrade(data) {
+    data.sessionTimes ??= {};
+    for (const details of Object.values(data.exams ?? {})) {
+      if (details.end !== undefined) {
+        if (details.duration == null) details.duration = minutesBetween(details.start, details.end);
+        delete details.end;
+      }
+    }
+    for (const [period, t] of Object.entries(data.periodTimes ?? {})) {
+      // The old "usual session times" become each session's start time. Their finish time was
+      // the end of the whole session, not the exam, so it is not turned into a duration.
+      if (!t.start) continue;
+      for (const s of data.sessions ?? []) {
+        if (s.period !== period) continue;
+        const st = (data.sessionTimes[sessionId(s.date, s.period)] ??= {});
+        if (!st.start) st.start = t.start;
+      }
+    }
+    delete data.periodTimes;
+    return data;
+  }
+
+  // The start time and duration that apply to one room: its own, or else its session's.
+  function timesFor(data, sid, location) {
+    const exam = data.exams?.[examKey(sid, location)] ?? {};
+    const session = data.sessionTimes?.[sid] ?? {};
+    return {
+      start: exam.start || session.start || "",
+      duration: exam.duration ?? session.duration ?? null,
+    };
+  }
+
   // Everything one person needs to see for one session.
   function entryFor(data, session, name) {
     const sid = sessionId(session.date, session.period);
     const value = (data.duties?.[sid]?.[name] ?? "").trim();
-    const entry = { session, value, status: "free", where: "", exam: "", time: "" };
+    const entry = { session, value, status: "free", where: "", exam: "", start: "", duration: "" };
     if (!value) return entry;
     if (isUnavailable(value)) { entry.status = "unavailable"; return entry; }
     entry.status = isClash(value) ? "clash" : "duty";
     entry.where = value;
-    const exam = data.exams?.[examKey(sid, value)] ?? {};
-    const fallback = data.periodTimes?.[session.period] ?? {};
-    entry.exam = exam.exam ?? "";
-    const start = exam.start || fallback.start || "";
-    const end = exam.end || fallback.end || "";
-    entry.time = start && end ? `${start} to ${end}` : start ? `From ${start}` : "";
+    if (entry.status === "clash") return entry;
+    const times = timesFor(data, sid, value);
+    entry.exam = data.exams?.[examKey(sid, value)]?.exam ?? "";
+    entry.start = times.start;
+    entry.duration = formatDuration(times.duration);
     return entry;
   }
 
@@ -141,8 +223,8 @@ const LWLAT = (() => {
       invigilators: [],
       sessions: [],
       duties: {},
+      sessionTimes: {},
       exams: {},
-      periodTimes: {},
     };
   }
 
@@ -181,6 +263,7 @@ const LWLAT = (() => {
     parseISO, toISO, mondayOf, formatLong, formatShort, formatWeek, formatStamp,
     sessionId, normalise, isUnavailable, isClash, examKey, sortSessions, periodOrderOf,
     entryFor, emptyData, el, imageAsDataUrl,
+    parseTime, parseDuration, formatDuration, minutesBetween, upgrade, timesFor,
     DAY_NAMES, MONTH_NAMES,
   };
 })();

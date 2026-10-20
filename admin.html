@@ -53,6 +53,10 @@
     table.grid input { border: none; border-radius: 0; width: 96px; padding: 8px 6px; font-size: 0.9rem; background: transparent; }
     table.grid input:focus { outline: 3px solid var(--teal); outline-offset: -3px; background: var(--white); }
     table.grid td.filled { background: var(--teal-tint); }
+    table.grid th.times { background: var(--grey); }
+    table.grid input.t-start { width: 72px; }
+    table.grid input.t-dur { width: 84px; }
+    input.invalid { outline: 3px solid var(--red) !important; outline-offset: -3px; background: var(--red-tint) !important; }
     table.grid td.na { background: var(--grey); }
     table.grid td.na input { color: var(--white); font-weight: bold; }
     table.grid td.clash { background: var(--red); }
@@ -67,6 +71,8 @@
     table.list td, table.list th { padding: 8px 10px; }
     table.list input[type="text"] { width: 100%; min-width: 180px; padding: 8px; }
     table.list input[type="time"] { padding: 8px; }
+    table.list input.t-start { min-width: 0; width: 84px; }
+    table.list input.t-dur { min-width: 0; width: 100px; }
 
     .dropzone {
       border: 3px dashed var(--teal); border-radius: var(--radius);
@@ -135,7 +141,7 @@
 
       <!-- Timetable grid -->
       <section id="tab-grid" class="tab hidden">
-        <p class="help">Click a box and type to change it. Type a room or duty (for example Hall, Gym or Roving). Type <strong>N/A</strong> if the person is not available. Leave it empty for no duty. Press <strong>Save and publish</strong> when you have finished.</p>
+        <p class="help">Click a box and type to change it. Type a room or duty (for example Hall, Gym or Roving). Type <strong>N/A</strong> if the person is not available. Leave it empty for no duty. The <strong>Start time</strong> and <strong>Duration</strong> columns (not including extra time) apply to every room in that session. Press <strong>Save and publish</strong> when you have finished.</p>
         <div class="row" style="margin-bottom:8px">
           <label for="grid-week" style="margin:0">Show</label>
           <select id="grid-week"></select>
@@ -149,18 +155,14 @@
 
       <!-- Exam details -->
       <section id="tab-exams" class="tab hidden">
-        <p class="help">Add the exam name and times for each room. Invigilators see these next to their duty. If you leave the times empty, the usual session times below are shown instead.</p>
-        <div class="card">
-          <h3>Usual session times</h3>
-          <div id="period-times" class="row"></div>
-        </div>
+        <p class="help">Add the exam name for each room. The start time and duration (not including extra time) come from the timetable and show in grey. Type over them only if one room is different. Durations can be typed as 1h 30m, 1:30 or 90 mins.</p>
         <div class="row" style="margin-bottom:12px">
           <label for="exam-week" style="margin:0">Show</label>
           <select id="exam-week"></select>
         </div>
         <div style="overflow:auto">
           <table class="list">
-            <thead><tr><th>Date</th><th>Session</th><th>Room or duty</th><th>Invigilators</th><th>Exam</th><th>Start</th><th>Finish</th></tr></thead>
+            <thead><tr><th>Date</th><th>Session</th><th>Room or duty</th><th>Invigilators</th><th>Exam</th><th>Start time</th><th>Duration</th></tr></thead>
             <tbody id="exam-body"></tbody>
           </table>
         </div>
@@ -272,7 +274,7 @@
           return;
         }
         remember(sessionStorage, PASSWORD_KEY, password);
-        data = Object.assign(LWLAT.emptyData(), result.data || {});
+        data = LWLAT.upgrade(Object.assign(LWLAT.emptyData(), result.data || {}));
         savedAt = result.data?.updatedAt ?? null;
         editable = result.editable !== false;
         $("login").classList.add("hidden");
@@ -339,7 +341,7 @@
       try {
         tidy();
         const result = await api("/api/timetable" + q(), { method: "PUT", password, body: { data, baseUpdatedAt: savedAt, force } });
-        data = Object.assign(LWLAT.emptyData(), result.data);
+        data = LWLAT.upgrade(Object.assign(LWLAT.emptyData(), result.data));
         savedAt = result.data.updatedAt;
         setDirty(false);
         showMessage("Saved. Invigilators can now see the updated timetable.", "success");
@@ -367,7 +369,10 @@
         }
       }
       for (const [key, v] of Object.entries(data.exams)) {
-        if (!v.exam && !v.start && !v.end) delete data.exams[key];
+        if (!v.exam && !v.start && v.duration == null) delete data.exams[key];
+      }
+      for (const [sid, v] of Object.entries(data.sessionTimes)) {
+        if (!valid.has(sid) || (!v.start && v.duration == null)) delete data.sessionTimes[sid];
       }
     }
 
@@ -409,6 +414,49 @@
       if ([...select.options].some((o) => o.value === keep)) select.value = keep;
     }
 
+    // ---- Start time and duration boxes ----
+
+    function shortDuration(minutes) {
+      if (!(minutes > 0)) return "";
+      const h = Math.floor(minutes / 60), m = minutes % 60;
+      return [h ? `${h}h` : "", m ? `${m}m` : ""].filter(Boolean).join(" ");
+    }
+
+    // A text box for a start time or a duration. It turns red if it cannot be understood,
+    // and tidies what was typed (9 -> 09:00, 90 mins -> 1h 30m) when you leave it.
+    function timeBox(kind, value, placeholder, label, onValue) {
+      const isStart = kind === "start";
+      const show = (v) => (isStart ? (v || "") : shortDuration(v));
+      const input = el("input", {
+        type: "text", class: isStart ? "t-start" : "t-dur", value: show(value),
+        placeholder, "aria-label": label, autocomplete: "off",
+        oninput: (e) => {
+          const raw = e.target.value.trim();
+          const parsed = !raw ? null : isStart ? LWLAT.parseTime(raw) : LWLAT.parseDuration(raw);
+          const ok = !raw || parsed !== null;
+          e.target.classList.toggle("invalid", !ok);
+          e.target.title = ok ? "" : isStart ? "Type a time such as 9:00" : "Type a duration such as 1h 30m, 1:30 or 90 mins";
+          if (ok) { onValue(parsed); changed(); }
+        },
+        onblur: (e) => {
+          if (e.target.classList.contains("invalid")) return;
+          const raw = e.target.value.trim();
+          e.target.value = show(!raw ? null : isStart ? LWLAT.parseTime(raw) : LWLAT.parseDuration(raw));
+        },
+      });
+      return input;
+    }
+
+    function setSessionTime(sid, field, value) {
+      const t = (data.sessionTimes[sid] ??= {});
+      if (value === null) delete t[field]; else t[field] = value;
+    }
+
+    function setExamField(key, field, value) {
+      const d = (data.exams[key] ??= {});
+      if (value === null || value === "") delete d[field]; else d[field] = value;
+    }
+
     // ---- Timetable grid ----
 
     function cellClass(v) {
@@ -436,6 +484,8 @@
 
       const head = el("thead", {}, el("tr", {},
         el("th", { class: "rowhead", text: "Session" }),
+        el("th", { class: "times", scope: "col", text: "Start time" }),
+        el("th", { class: "times", scope: "col", text: "Duration" }),
         ...data.invigilators.map((n) => el("th", { scope: "col", text: n }))));
 
       let lastMonday = null;
@@ -446,6 +496,10 @@
         lastMonday = monday;
         return el("tr", { class: weekStart ? "week-start" : "" },
           el("th", { class: "rowhead", scope: "row", text: `${LWLAT.formatShort(s.date)} ${s.period}` }),
+          el("td", {}, timeBox("start", data.sessionTimes[sid]?.start, "", `Start time, ${LWLAT.formatLong(s.date)} ${s.period}`,
+            (v) => setSessionTime(sid, "start", v))),
+          el("td", {}, timeBox("duration", data.sessionTimes[sid]?.duration, "", `Duration, ${LWLAT.formatLong(s.date)} ${s.period}`,
+            (v) => setSessionTime(sid, "duration", v))),
           ...data.invigilators.map((name) => {
             const value = data.duties[sid]?.[name] ?? "";
             const td = el("td", { class: cellClass(value) });
@@ -470,20 +524,6 @@
     // ---- Exam details ----
 
     function renderExams() {
-      const periods = LWLAT.periodOrderOf(data);
-      $("period-times").replaceChildren(...(periods.length ? periods : ["AM", "PM"]).map((p) => {
-        const t = data.periodTimes[p] ?? {};
-        const set = (field) => (e) => {
-          data.periodTimes[p] = { ...(data.periodTimes[p] ?? {}), [field]: e.target.value };
-          changed();
-        };
-        return el("div", { class: "row", style: "margin-right:24px" },
-          el("strong", { text: p }),
-          el("input", { type: "time", value: t.start ?? "", "aria-label": `${p} start`, onchange: set("start") }),
-          "to",
-          el("input", { type: "time", value: t.end ?? "", "aria-label": `${p} finish`, onchange: set("end") }));
-      }));
-
       fillWeekSelect($("exam-week"));
       const week = $("exam-week").value;
       const rows = LWLAT_EXCEL.examRows(data).filter((r) => !week || LWLAT.mondayOf(r.session.date) === week);
@@ -496,18 +536,18 @@
         const sid = LWLAT.sessionId(r.session.date, r.session.period);
         const first = sid !== lastSid;
         lastSid = sid;
-        const update = (field) => (e) => {
-          data.exams[r.key] = { ...(data.exams[r.key] ?? {}), [field]: e.target.value };
-          changed();
-        };
+        const session = data.sessionTimes[sid] ?? {};
         return el("tr", { style: first ? "border-top:2px solid var(--teal)" : "" },
           el("td", { text: first ? LWLAT.formatShort(r.session.date) : "" }),
           el("td", { text: first ? r.session.period : "" }),
           el("td", {}, el("strong", { text: r.location })),
           el("td", { class: "small muted", text: r.names.join(", ") }),
-          el("td", {}, el("input", { type: "text", value: r.details.exam ?? "", placeholder: "Exam name", "aria-label": `Exam in ${r.location}`, oninput: update("exam") })),
-          el("td", {}, el("input", { type: "time", value: r.details.start ?? "", "aria-label": "Start", onchange: update("start") })),
-          el("td", {}, el("input", { type: "time", value: r.details.end ?? "", "aria-label": "Finish", onchange: update("end") })));
+          el("td", {}, el("input", { type: "text", value: r.details.exam ?? "", placeholder: "Exam name", "aria-label": `Exam in ${r.location}`,
+            oninput: (e) => { setExamField(r.key, "exam", e.target.value); changed(); } })),
+          el("td", {}, timeBox("start", r.details.start, session.start || "", `Start time in ${r.location}`,
+            (v) => setExamField(r.key, "start", v))),
+          el("td", {}, timeBox("duration", r.details.duration, shortDuration(session.duration), `Duration in ${r.location}`,
+            (v) => setExamField(r.key, "duration", v))));
       }));
     }
     $("exam-week").addEventListener("change", renderExams);
@@ -544,6 +584,9 @@
           el("li", { text: `${parsed.invigilators.length} invigilators: ${parsed.invigilators.join(", ")}` }),
           el("li", { text: `${sessions.length} sessions over ${weeks} weeks, from ${LWLAT.formatLong(first.date)} ${first.date.slice(0, 4)} to ${LWLAT.formatLong(last.date)} ${last.date.slice(0, 4)}` }),
           el("li", { text: `${parsed.stats.dutyCount} duties and ${parsed.stats.unavailableCount} "not available" sessions` }),
+          el("li", { text: parsed.hasTimeColumns
+            ? `Start times or durations for ${parsed.stats.timedSessions} sessions`
+            : "No Start time or Duration columns, so any times already entered are kept" }),
           Object.keys(parsed.exams).length ? el("li", { text: `${Object.keys(parsed.exams).length} exam details from the "Exam details" sheet` }) : null),
         parsed.warnings.length ? el("div", { class: "notice" }, el("strong", { text: "Please check:" }), el("ul", {}, parsed.warnings.map((w) => el("li", { text: w })))) : null,
         el("p", { text: "Please check the dates are right, including the year. Using this file replaces the timetable. Exam details already typed in are kept." }),
@@ -552,6 +595,7 @@
             data.invigilators = parsed.invigilators;
             data.sessions = parsed.sessions;
             data.duties = parsed.duties;
+            data.sessionTimes = { ...data.sessionTimes, ...parsed.sessionTimes };
             data.exams = { ...data.exams, ...parsed.exams };
             // An earlier version copied the sheet's tab name (e.g. "Summer 2026") in as the heading.
             if (LWLAT.normalise(data.title) === LWLAT.normalise(parsed.sheetName)) data.title = "";
@@ -657,7 +701,7 @@
       if (!confirm(`Restore the version published ${LWLAT.formatStamp(v.savedAt)}? It will be published straight away.`)) return;
       try {
         const result = await api("/api/restore" + q(), { method: "POST", password, body: { key: v.key } });
-        data = Object.assign(LWLAT.emptyData(), result.data);
+        data = LWLAT.upgrade(Object.assign(LWLAT.emptyData(), result.data));
         savedAt = result.data.updatedAt;
         setDirty(false);
         showMessage("That version has been restored and published.", "success");

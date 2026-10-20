@@ -114,9 +114,10 @@
       </div>
       <p id="week-summary" class="summary"></p>
       <table class="timetable">
-        <thead><tr><th>Day</th><th>Session</th><th>Where</th><th>Exam</th><th>Time</th></tr></thead>
+        <thead><tr><th>Day</th><th>Session</th><th>Where</th><th>Exam</th><th>Start time</th><th>Duration*</th></tr></thead>
         <tbody id="week-body"></tbody>
       </table>
+      <p class="muted small" style="margin-top:8px">* Durations do not include extra time.</p>
       <div class="actions no-print">
         <button id="pdf-week" type="button">Download this week (PDF)</button>
         <button id="pdf-all" class="secondary" type="button">Download all weeks (PDF)</button>
@@ -217,7 +218,7 @@
         const result = await api(`/api/timetable?school=${encodeURIComponent(id)}`, { password });
         if (!result.data?.invigilators?.length) { openSchools(); return; }
         school = LWLAT.schoolById(id);
-        data = result.data;
+        data = LWLAT.upgrade(result.data);
         prepare();
         const match = data.invigilators.find((n) => n === name);
         if (match) openPerson(match); else openSearch();
@@ -299,9 +300,9 @@
     }
 
     function describe(entry) {
-      if (entry.status === "unavailable") return { where: "Not available", exam: "", time: "" };
-      if (entry.status === "free") return { where: "No duty", exam: "", time: "" };
-      return { where: entry.where, exam: entry.exam, time: entry.time };
+      if (entry.status === "unavailable") return { where: "Not available", exam: "", start: "", duration: "" };
+      if (entry.status === "free") return { where: "No duty", exam: "", start: "", duration: "" };
+      return { where: entry.where, exam: entry.exam, start: entry.start, duration: entry.duration };
     }
 
     function renderWeek() {
@@ -330,7 +331,8 @@
           el("td", { "data-label": "Session", text: entry.session.period }),
           whereCell,
           el("td", { "data-label": "Exam", text: d.exam }),
-          el("td", { "data-label": "Time", text: d.time }),
+          el("td", { "data-label": "Start time", text: d.start }),
+          el("td", { "data-label": "Duration (without extra time)", text: d.duration }),
         );
       }));
     }
@@ -393,17 +395,17 @@
           const day = s.date !== lastDate ? LWLAT.formatLong(s.date) : "";
           lastDate = s.date;
           const where = entry.status === "clash" ? "Clash: please speak to the Exams Officer" : d.where;
-          return { cells: [day, s.period, where, d.exam, d.time], status: entry.status };
+          return { cells: [day, s.period, where, d.exam, d.start, d.duration], status: entry.status };
         });
 
         doc.autoTable({
           startY: 58,
-          head: [["Day", "Session", "Where", "Exam", "Time"]],
+          head: [["Day", "Session", "Where", "Exam", "Start time", "Duration*"]],
           body: rows.map((r) => r.cells),
           theme: "grid",
           styles: { font: "helvetica", fontSize: 10, cellPadding: 2.5, lineColor: [212, 213, 214], textColor: [31, 32, 33] },
           headStyles: { fillColor: tealDark, textColor: 255, fontStyle: "bold" },
-          columnStyles: { 0: { cellWidth: 42 }, 1: { cellWidth: 20 }, 2: { fontStyle: "bold" } },
+          columnStyles: { 0: { cellWidth: 42 }, 1: { cellWidth: 21 }, 2: { fontStyle: "bold" }, 4: { cellWidth: 19 }, 5: { cellWidth: 30 } },
           didParseCell: (hook) => {
             if (hook.section !== "body") return;
             const status = rows[hook.row.index].status;
@@ -423,6 +425,7 @@
         doc.setFontSize(9);
         doc.setTextColor(99, 100, 102);
         const stamp = data.updatedAt ? `Timetable last updated ${LWLAT.formatStamp(data.updatedAt)}. ` : "";
+        doc.text("* Durations do not include extra time.", 14, 278);
         doc.text(stamp, 14, 283);
         doc.text("Changes can happen, so please check the website before each session.", 14, 288);
         doc.text(`Page ${i} of ${pages}`, pageWidth - 14, 288, { align: "right" });
