@@ -1,0 +1,7 @@
+node_modules/
+.netlify/
+# Never commit timetable spreadsheets: they contain staff names.
+*.xlsx
+*.xlsb
+*.xls
+*.csv
